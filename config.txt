@@ -1,0 +1,1325 @@
+# PR Quality Gate Dashboard
+
+## 1. Visão geral
+
+O **PR Quality Gate Dashboard** é uma aplicação web para analisar Pull Requests do GitHub usando critérios objetivos e inteligência artificial. O objetivo do projeto é permitir que um time ou desenvolvedor conecte um repositório GitHub, configure regras de qualidade e execute uma análise completa de um PR antes do merge.
+
+O sistema verifica três pilares principais:
+
+1. **Coverage de testes**
+2. **Segurança**
+3. **Dívida técnica**
+
+Ao final da análise, o dashboard mostra uma decisão simples:
+
+```text
+PASS — o PR passou no quality gate
+
+ou
+
+FAIL — o PR deve ser corrigido antes do merge
+```
+
+Além disso, o sistema pode comentar automaticamente no Pull Request e publicar um status no GitHub, como:
+
+```text
+ai-quality-gate: success
+ai-quality-gate: failure
+```
+
+A primeira versão do projeto será simples, manual e direta. O usuário acessa o dashboard, conecta um repositório, escolhe um PR e clica em **Analisar PR**.
+
+---
+
+## 2. Objetivo do projeto
+
+O objetivo principal é criar uma plataforma web que ajude a responder a seguinte pergunta:
+
+```text
+Este Pull Request está seguro, testado e tecnicamente saudável o suficiente para ser aprovado?
+```
+
+O sistema deve evitar que PRs problemáticos avancem sem revisão adequada, especialmente quando eles:
+
+* Reduzem a cobertura de testes.
+* Adicionam código crítico sem testes.
+* Introduzem risco de segurança.
+* Criam dívida técnica relevante.
+* Adicionam funções muito grandes ou complexas.
+* Criam endpoints sem autenticação ou autorização clara.
+* Adicionam TODOs ou soluções temporárias em código novo.
+* Alteram partes sensíveis do sistema sem cuidado.
+
+---
+
+## 3. Stack do projeto
+
+A stack escolhida para o projeto será:
+
+```text
+Backend: FastAPI
+Frontend: React
+Banco de dados: PostgreSQL
+ORM: SQLAlchemy
+Migrations: Alembic
+Agente de IA: LangChain
+Containerização: Docker Compose
+```
+
+### 3.1 FastAPI
+
+O **FastAPI** será responsável pela API principal da aplicação. Ele irá expor endpoints para:
+
+* Autenticação e conexão com GitHub.
+* Listagem de repositórios.
+* Listagem de Pull Requests.
+* Configuração de quality gates.
+* Execução de análises.
+* Consulta de resultados.
+* Histórico de análises.
+* Publicação de comentários/status no GitHub.
+
+### 3.2 React
+
+O **React** será usado para criar o dashboard web. Ele será responsável por:
+
+* Exibir repositórios conectados.
+* Exibir Pull Requests abertos.
+* Permitir configuração das regras de quality gate.
+* Mostrar análises em andamento.
+* Mostrar resultados detalhados.
+* Exibir histórico e métricas do projeto.
+
+### 3.3 PostgreSQL
+
+O **PostgreSQL** será usado para armazenar:
+
+* Usuários.
+* Instalações/conexões com GitHub.
+* Repositórios conectados.
+* Configurações por repositório.
+* Execuções de análise.
+* Findings encontrados.
+* Relatórios finais.
+
+### 3.4 SQLAlchemy
+
+O **SQLAlchemy** será usado como ORM para mapear as tabelas do banco para classes Python.
+
+Ele será responsável por facilitar:
+
+* Criação de registros.
+* Consultas.
+* Relacionamentos.
+* Atualizações.
+* Filtros.
+* Transações.
+
+### 3.5 Alembic
+
+O **Alembic** será usado para controlar migrations do banco de dados.
+
+Toda alteração estrutural no banco deverá ser versionada com migration, por exemplo:
+
+* Criar tabela de repositórios.
+* Criar tabela de análises.
+* Adicionar coluna de status.
+* Alterar estrutura de configurações.
+
+### 3.6 LangChain
+
+O **LangChain** será usado para construir o agente de análise inteligente.
+
+Ele será responsável por interpretar os dados coletados do PR, como:
+
+* Diff.
+* Arquivos alterados.
+* Resultado de coverage.
+* Resultado de scanners de segurança.
+* Métricas de dívida técnica.
+
+O LangChain deve gerar uma análise estruturada com:
+
+* Decisão final.
+* Score.
+* Riscos encontrados.
+* Motivos bloqueantes.
+* Sugestões de correção.
+* Resumo técnico do PR.
+
+### 3.7 Docker Compose
+
+O **Docker Compose** será usado para rodar o ambiente local com múltiplos serviços:
+
+* Backend FastAPI.
+* Frontend React.
+* PostgreSQL.
+* Serviço de análise, caso seja separado futuramente.
+
+No MVP, o backend pode executar a análise diretamente. Em versões futuras, o runner pode ser separado em um worker.
+
+---
+
+## 4. Proposta do produto
+
+O produto será um dashboard de análise de Pull Requests.
+
+Fluxo principal:
+
+```text
+Usuário acessa o dashboard
+→ conecta um repositório GitHub
+→ configura as regras do quality gate
+→ escolhe um Pull Request
+→ clica em "Analisar PR"
+→ sistema executa análise
+→ dashboard mostra PASS ou FAIL
+→ sistema pode comentar no PR e publicar status no GitHub
+```
+
+O foco inicial não é substituir CI/CD, nem GitHub Actions. O foco é criar um **revisor técnico inteligente**, executado a partir de um dashboard.
+
+---
+
+## 5. Arquitetura geral
+
+A arquitetura inicial será monolítica, para manter o projeto simples.
+
+```text
+┌────────────────────────────┐
+│          React App          │
+│       Dashboard Web         │
+└─────────────┬──────────────┘
+              │ HTTP/REST
+              ▼
+┌────────────────────────────┐
+│        FastAPI Backend      │
+│ API, regras, GitHub, agente │
+└─────────────┬──────────────┘
+              │
+      ┌───────┼────────┐
+      ▼       ▼        ▼
+┌────────┐ ┌────────┐ ┌────────────────┐
+│Postgres│ │GitHub  │ │ LangChain Agent │
+│        │ │API     │ │                │
+└────────┘ └────────┘ └────────────────┘
+              │
+              ▼
+┌────────────────────────────┐
+│     Docker Local Runner     │
+│ clone, tests, scanners      │
+└────────────────────────────┘
+```
+
+---
+
+## 6. Componentes principais
+
+## 6.1 Frontend React
+
+O frontend terá as seguintes páginas principais:
+
+### Dashboard inicial
+
+Mostra uma visão geral das análises:
+
+* Total de PRs analisados.
+* Total de aprovações.
+* Total de reprovações.
+* Taxa de aprovação.
+* Últimas análises.
+* Principais motivos de falha.
+
+### Página de repositórios
+
+Lista os repositórios conectados ao sistema.
+
+Cada repositório deve mostrar:
+
+* Nome do repositório.
+* Última análise.
+* Quantidade de PRs abertos.
+* Status da configuração.
+* Botão para visualizar PRs.
+* Botão para configurar quality gate.
+
+### Página de Pull Requests
+
+Lista os PRs abertos de um repositório.
+
+Cada PR deve mostrar:
+
+* Número do PR.
+* Título.
+* Autor.
+* Branch base.
+* Branch head.
+* Último status do quality gate.
+* Botão para analisar.
+
+### Página de configuração do quality gate
+
+Permite configurar as regras por repositório.
+
+Configurações principais:
+
+* Coverage mínimo.
+* Queda máxima permitida de coverage.
+* Coverage mínimo em arquivos alterados.
+* Severidades de segurança bloqueantes.
+* Limite de linhas por função.
+* Limite de complexidade.
+* Bloquear TODO/FIXME novo.
+* Habilitar comentário no GitHub.
+* Habilitar status no GitHub.
+
+### Página de resultado da análise
+
+Mostra o resultado completo de uma análise.
+
+Deve exibir:
+
+* Decisão final: PASS ou FAIL.
+* Score geral.
+* Resultado de coverage.
+* Resultado de segurança.
+* Resultado de dívida técnica.
+* Motivos bloqueantes.
+* Sugestões.
+* Logs resumidos.
+* Arquivos afetados.
+* Relatório final em Markdown.
+
+---
+
+## 6.2 Backend FastAPI
+
+O backend será responsável por orquestrar toda a aplicação.
+
+Principais responsabilidades:
+
+* Gerenciar usuários.
+* Gerenciar repositórios.
+* Gerenciar configurações.
+* Buscar dados do GitHub.
+* Iniciar análises.
+* Executar comandos no runner.
+* Chamar o agente LangChain.
+* Persistir resultados.
+* Retornar dados para o frontend.
+* Comentar no PR.
+* Publicar status no GitHub.
+
+Principais módulos:
+
+```text
+app/
+  main.py
+  api/
+  core/
+  db/
+  models/
+  schemas/
+  services/
+  github/
+  agent/
+  gates/
+  runner/
+```
+
+---
+
+## 6.3 Banco de dados PostgreSQL
+
+O banco será responsável por guardar os dados permanentes do sistema.
+
+Tabelas principais:
+
+```text
+users
+github_connections
+repositories
+quality_gate_configs
+pull_requests
+analysis_runs
+analysis_findings
+```
+
+### users
+
+Armazena usuários do dashboard.
+
+Campos principais:
+
+```text
+id
+name
+email
+created_at
+updated_at
+```
+
+### github_connections
+
+Armazena dados de conexão com GitHub.
+
+Campos principais:
+
+```text
+id
+user_id
+github_username
+access_token_encrypted
+created_at
+updated_at
+```
+
+Na versão inicial, pode ser usado um token pessoal configurado via `.env`. Em uma versão posterior, o sistema pode migrar para GitHub App.
+
+### repositories
+
+Armazena repositórios conectados.
+
+Campos principais:
+
+```text
+id
+user_id
+github_repo_id
+owner
+name
+full_name
+default_branch
+created_at
+updated_at
+```
+
+### quality_gate_configs
+
+Armazena configurações por repositório.
+
+Campos principais:
+
+```text
+id
+repository_id
+min_total_coverage
+max_coverage_drop
+min_changed_files_coverage
+security_fail_on
+max_function_lines
+max_complexity
+fail_on_new_todo
+comment_on_github
+publish_github_status
+created_at
+updated_at
+```
+
+### analysis_runs
+
+Armazena cada execução de análise.
+
+Campos principais:
+
+```text
+id
+repository_id
+pr_number
+head_sha
+status
+decision
+score
+coverage_result_json
+security_result_json
+technical_debt_result_json
+final_report_markdown
+started_at
+finished_at
+created_at
+updated_at
+```
+
+Status possíveis:
+
+```text
+pending
+running
+success
+failed
+error
+```
+
+Decision possível:
+
+```text
+pass
+fail
+```
+
+### analysis_findings
+
+Armazena problemas encontrados na análise.
+
+Campos principais:
+
+```text
+id
+analysis_run_id
+category
+severity
+file_path
+line_number
+title
+description
+blocking
+created_at
+```
+
+Categorias possíveis:
+
+```text
+coverage
+security
+technical_debt
+```
+
+Severidades possíveis:
+
+```text
+low
+medium
+high
+critical
+```
+
+---
+
+## 7. Fluxo de análise do PR
+
+O fluxo principal de análise será:
+
+```text
+1. Usuário clica em "Analisar PR"
+2. Backend cria um analysis_run com status running
+3. Backend busca dados do PR no GitHub
+4. Backend clona o repositório em workspace temporário
+5. Backend roda análise de coverage
+6. Backend roda análise de segurança
+7. Backend roda análise de dívida técnica
+8. Backend envia dados consolidados para o agente LangChain
+9. Agente gera decisão estruturada
+10. Backend aplica regras finais objetivas
+11. Resultado é salvo no banco
+12. Dashboard exibe o resultado
+13. Opcionalmente, sistema comenta no PR
+14. Opcionalmente, sistema publica status no commit do PR
+```
+
+---
+
+## 8. Coverage Gate
+
+O **Coverage Gate** é responsável por verificar se o PR mantém ou melhora a cobertura de testes.
+
+Ele deve comparar:
+
+```text
+coverage da branch base
+coverage da branch do PR
+```
+
+Exemplo:
+
+```text
+Base: 84.2%
+PR: 82.9%
+Drop: -1.3%
+```
+
+Regras recomendadas:
+
+```text
+FAIL se coverage total ficar abaixo do mínimo configurado.
+FAIL se coverage cair mais que o permitido.
+FAIL se arquivos alterados tiverem coverage abaixo do mínimo.
+WARN se o PR adiciona código novo sem adicionar testes.
+```
+
+Configuração inicial:
+
+```json
+{
+  "min_total": 80,
+  "max_drop": 0,
+  "min_changed_files": 75
+}
+```
+
+Resultado esperado:
+
+```json
+{
+  "status": "fail",
+  "base_coverage": 84.2,
+  "pr_coverage": 82.9,
+  "coverage_drop": 1.3,
+  "changed_files_coverage": 61.5,
+  "blocking_reasons": [
+    "Coverage caiu de 84.2% para 82.9%",
+    "Coverage dos arquivos alterados está abaixo de 75%"
+  ]
+}
+```
+
+---
+
+## 9. Security Gate
+
+O **Security Gate** é responsável por detectar riscos de segurança no PR.
+
+Ele deve usar uma combinação de:
+
+```text
+scanners determinísticos
++
+revisão inteligente com LangChain
+```
+
+Scanners iniciais recomendados para projetos Python:
+
+```text
+bandit
+detect-secrets
+semgrep
+pip-audit
+```
+
+O LangChain deve revisar o diff buscando riscos como:
+
+* Endpoint novo sem autenticação.
+* Autorização fraca.
+* Falta de validação de input.
+* SQL injection.
+* SSRF.
+* IDOR.
+* Path traversal.
+* Exposição de token.
+* Dados sensíveis em logs.
+* CORS aberto demais.
+* Bypass de autenticação.
+* Uso inseguro de variáveis de ambiente.
+* Permissões excessivas.
+
+Regras recomendadas:
+
+```text
+FAIL se houver severidade critical.
+FAIL se houver severidade high.
+WARN se houver severidade medium.
+PASS se não houver bloqueadores.
+```
+
+Resultado esperado:
+
+```json
+{
+  "status": "fail",
+  "critical": 0,
+  "high": 1,
+  "medium": 2,
+  "low": 3,
+  "blocking_reasons": [
+    "Novo endpoint /admin/export não possui autorização clara de admin"
+  ],
+  "warnings": [
+    "Payload recebido no endpoint não possui validação forte",
+    "Log pode expor e-mail do usuário"
+  ]
+}
+```
+
+---
+
+## 10. Technical Debt Gate
+
+O **Technical Debt Gate** é responsável por detectar se o PR adiciona dívida técnica nova.
+
+Ele deve verificar:
+
+* Funções grandes demais.
+* Arquivos grandes demais.
+* Complexidade alta.
+* TODO/FIXME novo.
+* Uso excessivo de `except Exception`.
+* Código duplicado.
+* Nomes ruins.
+* Responsabilidades misturadas.
+* Falta de tipagem em código novo.
+* Código difícil de testar.
+* Baixo isolamento de regras de negócio.
+* Acoplamento excessivo.
+
+Ferramentas possíveis:
+
+```text
+radon
+ruff
+mypy
+análise própria via AST
+```
+
+A IA deve complementar a análise identificando problemas arquiteturais mais subjetivos.
+
+Regras recomendadas:
+
+```text
+FAIL se uma função nova passar do limite de linhas.
+FAIL se complexidade passar do limite.
+FAIL se houver TODO/FIXME novo em fluxo principal.
+FAIL se o agente encontrar blocker arquitetural.
+WARN para sugestões de melhoria não bloqueantes.
+```
+
+Configuração inicial:
+
+```json
+{
+  "max_function_lines": 80,
+  "max_complexity": 10,
+  "fail_on_new_todo": true
+}
+```
+
+Resultado esperado:
+
+```json
+{
+  "status": "fail",
+  "score": 68,
+  "blocking_reasons": [
+    "A função process_import tem 142 linhas",
+    "O PR adiciona TODO em fluxo principal",
+    "O serviço mistura validação, transformação e persistência"
+  ],
+  "suggestions": [
+    "Separar validação em uma classe própria",
+    "Criar testes unitários para transformação dos dados",
+    "Mover persistência para um repository/service dedicado"
+  ]
+}
+```
+
+---
+
+## 11. Agente LangChain
+
+O agente LangChain será responsável por consolidar as análises e gerar uma resposta estruturada.
+
+O agente não deve substituir as regras objetivas. Ele deve atuar como uma camada de interpretação e revisão técnica.
+
+Entrada do agente:
+
+```text
+dados do PR
+arquivos alterados
+diff
+resultado do coverage gate
+resultado do security gate
+resultado do technical debt gate
+configuração do repositório
+```
+
+Saída esperada:
+
+```json
+{
+  "decision": "fail",
+  "score": 72,
+  "summary": "O PR adiciona uma funcionalidade relevante, mas reduz coverage e cria dívida técnica significativa.",
+  "coverage_status": "fail",
+  "security_status": "pass",
+  "technical_debt_status": "fail",
+  "blocking_reasons": [
+    "Coverage caiu 1.3%",
+    "Função nova excede limite de tamanho",
+    "Fluxo principal não possui teste para payload inválido"
+  ],
+  "suggestions": [
+    "Adicionar testes para payload inválido",
+    "Refatorar função process_import",
+    "Separar validação, transformação e persistência"
+  ]
+}
+```
+
+O backend deve aplicar uma regra final objetiva:
+
+```text
+Se coverage falhou → FAIL
+Se segurança tem high ou critical → FAIL
+Se dívida técnica tem blocker → FAIL
+Se score final for menor que o mínimo → FAIL
+Caso contrário → PASS
+```
+
+Essa abordagem evita que a IA aprove um PR que falhou em uma regra objetiva importante.
+
+---
+
+## 12. API principal
+
+Endpoints iniciais recomendados:
+
+### Health check
+
+```http
+GET /health
+```
+
+Resposta:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+### Listar repositórios
+
+```http
+GET /api/repositories
+```
+
+### Sincronizar repositórios do GitHub
+
+```http
+POST /api/github/sync-repositories
+```
+
+### Listar Pull Requests
+
+```http
+GET /api/repositories/{repository_id}/pull-requests
+```
+
+### Buscar configuração do quality gate
+
+```http
+GET /api/repositories/{repository_id}/quality-gate-config
+```
+
+### Atualizar configuração
+
+```http
+PUT /api/repositories/{repository_id}/quality-gate-config
+```
+
+### Iniciar análise
+
+```http
+POST /api/repositories/{repository_id}/pull-requests/{pr_number}/analyze
+```
+
+Resposta:
+
+```json
+{
+  "analysis_run_id": 123,
+  "status": "running"
+}
+```
+
+### Buscar resultado da análise
+
+```http
+GET /api/analysis-runs/{analysis_run_id}
+```
+
+### Listar histórico de análises
+
+```http
+GET /api/repositories/{repository_id}/analysis-runs
+```
+
+### Publicar resultado no GitHub
+
+```http
+POST /api/analysis-runs/{analysis_run_id}/publish-github
+```
+
+---
+
+## 13. Estrutura de pastas
+
+Estrutura recomendada do projeto:
+
+```text
+pr-quality-dashboard/
+  backend/
+    app/
+      main.py
+
+      api/
+        routes_health.py
+        routes_repositories.py
+        routes_pull_requests.py
+        routes_analysis.py
+        routes_quality_gate.py
+        routes_github.py
+
+      core/
+        config.py
+        security.py
+        logging.py
+
+      db/
+        base.py
+        session.py
+
+      models/
+        user.py
+        repository.py
+        quality_gate_config.py
+        analysis_run.py
+        analysis_finding.py
+
+      schemas/
+        repository.py
+        quality_gate_config.py
+        analysis.py
+        github.py
+
+      services/
+        repository_service.py
+        quality_gate_service.py
+        analysis_service.py
+
+      github/
+        client.py
+        pull_requests.py
+        comments.py
+        statuses.py
+
+      runner/
+        workspace.py
+        git_runner.py
+        command_runner.py
+
+      gates/
+        coverage_gate.py
+        security_gate.py
+        technical_debt_gate.py
+
+      agent/
+        quality_agent.py
+        prompts.py
+        schemas.py
+
+    alembic/
+    alembic.ini
+    pyproject.toml
+    Dockerfile
+
+  frontend/
+    src/
+      api/
+      components/
+      pages/
+      routes/
+      types/
+      hooks/
+    package.json
+    Dockerfile
+
+  docker-compose.yml
+  .env.example
+  README.md
+```
+
+---
+
+## 14. Docker Compose
+
+O ambiente local deve subir pelo menos:
+
+```text
+backend
+frontend
+postgres
+```
+
+Exemplo conceitual:
+
+```yaml
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: pr_quality
+      POSTGRES_USER: pr_quality
+      POSTGRES_PASSWORD: pr_quality
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+```
+
+---
+
+## 15. Variáveis de ambiente
+
+Arquivo `.env.example`:
+
+```env
+# App
+APP_ENV=development
+APP_NAME=PR Quality Gate Dashboard
+API_HOST=0.0.0.0
+API_PORT=8000
+
+# Database
+DATABASE_URL=postgresql+psycopg://pr_quality:pr_quality@postgres:5432/pr_quality
+
+# GitHub
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxx
+GITHUB_DEFAULT_BASE_BRANCH=main
+GITHUB_STATUS_CONTEXT=ai-quality-gate
+
+# OpenAI / LangChain
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
+OPENAI_MODEL=gpt-4.1-mini
+
+# LangSmith opcional
+LANGSMITH_TRACING=false
+LANGSMITH_API_KEY=
+LANGSMITH_PROJECT=pr-quality-dashboard
+
+# Runner
+WORKDIR=/tmp/pr-quality-dashboard
+COMMAND_TIMEOUT_SECONDS=600
+KEEP_WORKDIR=false
+
+# Coverage
+DEFAULT_TEST_COMMAND=pytest --cov=src --cov-report=xml --cov-report=term
+DEFAULT_COVERAGE_XML_PATH=coverage.xml
+DEFAULT_MIN_TOTAL_COVERAGE=80
+DEFAULT_MAX_COVERAGE_DROP=0
+DEFAULT_MIN_CHANGED_FILES_COVERAGE=75
+
+# Security
+SECURITY_FAIL_ON=critical,high
+RUN_BANDIT=true
+RUN_SEMGREP=true
+RUN_DETECT_SECRETS=true
+RUN_DEPENDENCY_AUDIT=true
+
+# Technical Debt
+MAX_FUNCTION_LINES=80
+MAX_COMPLEXITY=10
+FAIL_ON_NEW_TODO=true
+```
+
+---
+
+## 16. Relatório final da análise
+
+O relatório final deve ser exibido no dashboard e opcionalmente comentado no PR.
+
+Exemplo:
+
+```markdown
+## ❌ AI Quality Gate
+
+**Decisão:** FAIL  
+**Score:** 72/100  
+
+### Coverage
+
+- Base: 84.2%
+- PR: 82.9%
+- Drop: -1.3%
+- Arquivos alterados: 61.5%
+
+Resultado: ❌ Reprovado
+
+### Segurança
+
+- Critical: 0
+- High: 0
+- Medium: 2
+
+Resultado: ✅ Aprovado sem bloqueadores críticos
+
+### Dívida técnica
+
+Resultado: ❌ Reprovado
+
+Bloqueadores:
+
+1. `src/users/service.py` adicionou uma função com 142 linhas.
+2. O PR adicionou `TODO` em fluxo principal.
+3. O endpoint novo não possui teste para payload inválido.
+
+### Recomendações
+
+1. Separar validação, transformação e persistência.
+2. Adicionar testes para payload inválido.
+3. Reduzir tamanho da função principal.
+```
+
+---
+
+## 17. Roadmap do MVP
+
+### Fase 1 — Setup inicial
+
+Entregas:
+
+* Backend FastAPI rodando.
+* Frontend React rodando.
+* Postgres rodando.
+* Docker Compose funcionando.
+* SQLAlchemy configurado.
+* Alembic configurado.
+
+### Fase 2 — Banco e modelos
+
+Entregas:
+
+* Modelos principais.
+* Migrations.
+* CRUD básico.
+* Tabelas de repositórios, configs e análises.
+
+### Fase 3 — Integração com GitHub
+
+Entregas:
+
+* Buscar repositórios.
+* Buscar PRs.
+* Buscar arquivos alterados.
+* Buscar diff.
+* Publicar comentário.
+* Publicar status.
+
+### Fase 4 — Dashboard inicial
+
+Entregas:
+
+* Tela de repositórios.
+* Tela de PRs.
+* Tela de configurações.
+* Tela de análise.
+* Tela de histórico.
+
+### Fase 5 — Coverage Gate
+
+Entregas:
+
+* Clonar repositório.
+* Checkout base e head.
+* Rodar testes.
+* Ler coverage.xml.
+* Comparar coverage.
+* Salvar resultado.
+
+### Fase 6 — Security Gate
+
+Entregas:
+
+* Rodar scanners básicos.
+* Interpretar resultados.
+* Revisar diff com LangChain.
+* Classificar severidade.
+* Salvar findings.
+
+### Fase 7 — Technical Debt Gate
+
+Entregas:
+
+* Detectar TODO/FIXME novo.
+* Medir tamanho de função.
+* Medir complexidade.
+* Revisar arquitetura com LangChain.
+* Salvar findings.
+
+### Fase 8 — Agente LangChain
+
+Entregas:
+
+* Prompt principal.
+* Saída estruturada.
+* Decisão consolidada.
+* Score.
+* Relatório final.
+
+### Fase 9 — Publicação no GitHub
+
+Entregas:
+
+* Comentário no PR.
+* Status `ai-quality-gate`.
+* Config para ativar/desativar publicação.
+
+### Fase 10 — Melhorias
+
+Entregas futuras:
+
+* GitHub App.
+* Webhooks automáticos.
+* Fila de jobs.
+* Worker separado.
+* LangSmith.
+* LangGraph.
+* Multiusuário.
+* Organizações.
+* Dashboard de métricas avançadas.
+
+---
+
+## 18. Critérios de sucesso do MVP
+
+O MVP será considerado concluído quando for possível:
+
+1. Subir o projeto com Docker Compose.
+2. Acessar o dashboard React.
+3. Conectar um repositório GitHub via token.
+4. Listar Pull Requests abertos.
+5. Configurar regras de quality gate.
+6. Rodar análise manual em um PR.
+7. Ver resultado PASS ou FAIL.
+8. Ver detalhes de coverage, segurança e dívida técnica.
+9. Salvar histórico no Postgres.
+10. Gerar relatório final.
+11. Comentar no PR.
+12. Publicar status `ai-quality-gate` no GitHub.
+
+---
+
+## 19. Riscos técnicos
+
+### Execução de código não confiável
+
+O sistema pode executar testes de um PR que contém código malicioso.
+
+Mitigação:
+
+* Usar container isolado.
+* Usar timeout.
+* Limitar recursos.
+* Evitar montar arquivos sensíveis.
+* Não expor secrets no ambiente do runner.
+
+### Falso positivo da IA
+
+A IA pode reprovar um PR por um motivo exagerado.
+
+Mitigação:
+
+* Separar bloqueadores de sugestões.
+* Usar regras objetivas.
+* Permitir revisão humana.
+* Salvar histórico para ajustar prompts.
+
+### Falso negativo da IA
+
+A IA pode deixar passar um problema real.
+
+Mitigação:
+
+* Usar scanners determinísticos.
+* Regras objetivas para segurança.
+* Scanners como Bandit, Semgrep e detect-secrets.
+* Melhorar prompts com casos reais.
+
+### Coverage lento
+
+Rodar testes pode demorar muito.
+
+Mitigação:
+
+* Timeout.
+* Configuração por repositório.
+* Permitir desabilitar coverage em MVP.
+* Futuramente adicionar cache.
+
+---
+
+## 20. Evolução futura
+
+Após o MVP, o projeto pode evoluir para:
+
+* GitHub App oficial.
+* Webhook automático em PR aberto/atualizado.
+* Worker separado para análises longas.
+* Redis para fila.
+* LangGraph para orquestração mais robusta.
+* LangSmith para tracing e avaliação.
+* Dashboard com gráficos avançados.
+* Sugestões automáticas de correção.
+* Geração de patches.
+* Integração com Slack/Discord.
+* Suporte a múltiplas linguagens.
+* Suporte a monorepos.
+* Políticas por pasta.
+* Score histórico por repositório.
+* Comparação entre equipes/projetos.
+
+---
+
+## 21. Resumo final
+
+O **PR Quality Gate Dashboard** será uma aplicação web que conecta ao GitHub e analisa Pull Requests com foco em qualidade de software.
+
+A primeira versão será simples:
+
+```text
+React Dashboard
++ FastAPI API
++ Postgres
++ SQLAlchemy
++ Alembic
++ LangChain
++ Docker Compose
+```
+
+O usuário poderá:
+
+```text
+conectar repositório
+configurar regras
+selecionar PR
+rodar análise
+ver PASS/FAIL
+entender os problemas
+publicar comentário/status no GitHub
+```
+
+O diferencial do projeto é combinar verificações objetivas com análise inteligente via LangChain. Assim, o sistema não apenas mostra que um PR falhou, mas explica por que falhou e sugere como corrigir.
