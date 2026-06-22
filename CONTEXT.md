@@ -16,6 +16,10 @@ _Avoid_: Fases 0-2, fundacao
 The first real GitHub integration scope where the system uses a configured token to read repositories and Pull Requests without OAuth, GitHub App installation, comments, or status publication.
 _Avoid_: GitHub completo, GitHub App, conexao GitHub
 
+**GitHub Publication**:
+The dashboard-owned action of publishing an Analysis Run result back to GitHub as a Pull Request comment, commit status, or both.
+_Avoid_: write-back, GitHub sync, status job
+
 **Pull Request Trigger**:
 A GitHub-originated Pull Request lifecycle event that tells the dashboard to start or queue an Analysis Run for a known Repository.
 _Avoid_: webhook, auto analysis, automatic quality gate
@@ -63,6 +67,10 @@ _Avoid_: raw result, report, log
 **Gate Result Snapshot**:
 The structured per-pillar result captured for an Analysis Run, stored as historical evidence rather than as the primary query model.
 _Avoid_: finding, metric table, live scanner output
+
+**AI Review Snapshot**:
+The structured interpretation produced by the LangChain review step for a completed Gate Execution, used for summary, score, risks, and suggestions without owning the final Gate Decision.
+_Avoid_: AI decision, LangChain decision, final decision
 
 **Pull Request Snapshot**:
 The historical Pull Request metadata captured for an Analysis Run so the dashboard can explain which GitHub state was analyzed.
