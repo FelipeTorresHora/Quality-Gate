@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.models.enums import AnalysisRunStatus, AnalysisTriggerSource, GateDecision
+
 
 class GitHubRepositoryCreate(BaseModel):
     owner: str = Field(min_length=1)
@@ -22,6 +24,25 @@ class GitHubPullRequestRead(BaseModel):
     html_url: str
     created_at: datetime
     updated_at: datetime
+
+
+class PullRequestReviewRun(BaseModel):
+    id: UUID
+    status: AnalysisRunStatus
+    decision: GateDecision | None
+    score: float | None
+    trigger_source: AnalysisTriggerSource
+    head_sha: str
+    created_at: datetime
+
+
+class PullRequestReviewState(BaseModel):
+    state: Literal["not_run", "current", "outdated"]
+    analysis_run: PullRequestReviewRun | None
+
+
+class GitHubPullRequestWithReviewState(GitHubPullRequestRead):
+    review_state: PullRequestReviewState
 
 
 class PullRequestSnapshot(BaseModel):

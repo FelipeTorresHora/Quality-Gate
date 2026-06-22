@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     langsmith_tracing: bool = False
     langsmith_api_key: str | None = None
     langsmith_project: str = "pr-quality-dashboard"
+    workdir: str = "/tmp/pr-quality-dashboard"
+    command_timeout_seconds: int = 600
+    keep_workdir: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

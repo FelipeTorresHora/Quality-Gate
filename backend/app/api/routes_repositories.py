@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.schemas.github import (
-    GitHubPullRequestRead,
+    GitHubPullRequestWithReviewState,
     GitHubRepositoryCreate,
     PullRequestContextRead,
 )
@@ -39,7 +39,10 @@ def get_repository(repository_id: UUID, db: Session = Depends(get_db)):
     return repository_service.get_repository(db, repository_id)
 
 
-@router.get("/{repository_id}/pull-requests", response_model=list[GitHubPullRequestRead])
+@router.get(
+    "/{repository_id}/pull-requests",
+    response_model=list[GitHubPullRequestWithReviewState],
+)
 def list_pull_requests(repository_id: UUID, db: Session = Depends(get_db)):
     return github_service.list_repository_pull_requests(db, repository_id)
 

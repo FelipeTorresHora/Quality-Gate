@@ -44,6 +44,10 @@ _Avoid_: Pull Request, check, job
 The source that caused an Analysis Run to exist, such as a dashboard action, controlled mock scenario, or Pull Request Trigger.
 _Avoid_: origin, event type, runner source
 
+**Gate Execution**:
+The act of evaluating an Analysis Run against the repository's Quality Gate Config to produce Gate Result Snapshots and Analysis Findings.
+_Avoid_: auto analysis, webhook analysis, mock scenario
+
 **Run Status**:
 The operational state of an Analysis Run: `pending`, `running`, `completed`, or `error`.
 _Avoid_: decision, result, approval
@@ -79,6 +83,10 @@ _Avoid_: real analysis, fixture, random result
 **Quality Gate Config**:
 The repository-owned policy that defines which coverage, security, and technical debt conditions block a Pull Request analysis.
 _Avoid_: settings, preferences, scanner config
+
+**Coverage Execution Config**:
+The repository-owned instructions that describe how coverage evidence should be produced for a repository before the coverage policy is applied.
+_Avoid_: Quality Gate Config, automatic language detection, scanner config
 
 **Dashboard Summary**:
 A dashboard-owned aggregate view of Repository, Analysis Run, Gate Decision, and Analysis Finding counts used as the starting point for understanding project quality activity.

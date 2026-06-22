@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
+from app.models.coverage_execution_config import CoverageExecutionConfig
 from app.models.quality_gate_config import QualityGateConfig
 from app.models.repository import Repository
 from app.schemas.repository import RepositoryCreate
@@ -42,6 +43,7 @@ def create_repository(db: Session, payload: RepositoryCreate) -> Repository:
         default_branch=payload.default_branch,
     )
     repository.quality_gate_config = QualityGateConfig()
+    repository.coverage_execution_config = CoverageExecutionConfig()
     db.add(repository)
     try:
         db.commit()

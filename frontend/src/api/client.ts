@@ -2,6 +2,8 @@ import type {
   AnalysisRunDetail,
   AnalysisRunSummary,
   ApiErrorDetail,
+  CoverageExecutionConfig,
+  DashboardSummary,
   GitHubPullRequest,
   MockScenario,
   PullRequestContext,
@@ -44,6 +46,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export function getHealth() {
   return request<{ status: string }>("/health");
+}
+
+export function getDashboardSummary() {
+  return request<DashboardSummary>("/api/dashboard/summary");
 }
 
 export function listRepositories() {
@@ -91,6 +97,25 @@ export function getQualityGateConfig(repositoryId: string) {
   );
 }
 
+export function getCoverageExecutionConfig(repositoryId: string) {
+  return request<CoverageExecutionConfig>(
+    `/api/repositories/${repositoryId}/coverage-execution-config`
+  );
+}
+
+export function updateCoverageExecutionConfig(
+  repositoryId: string,
+  payload: Partial<CoverageExecutionConfig>
+) {
+  return request<CoverageExecutionConfig>(
+    `/api/repositories/${repositoryId}/coverage-execution-config`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    }
+  );
+}
+
 export function updateQualityGateConfig(
   repositoryId: string,
   payload: Partial<QualityGateConfig>
@@ -125,4 +150,10 @@ export function createMockAnalysisRun(
 
 export function getAnalysisRun(analysisRunId: string) {
   return request<AnalysisRunDetail>(`/api/analysis-runs/${analysisRunId}`);
+}
+
+export function executeAnalysisRun(analysisRunId: string) {
+  return request<AnalysisRunDetail>(`/api/analysis-runs/${analysisRunId}/execute`, {
+    method: "POST"
+  });
 }

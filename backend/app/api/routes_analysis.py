@@ -10,6 +10,7 @@ from app.schemas.analysis import (
     MockAnalysisRunCreate,
 )
 from app.services import analysis_service
+from app.services import analysis_execution_service
 
 router = APIRouter(tags=["analysis-runs"])
 
@@ -38,3 +39,11 @@ def create_mock_analysis_run(
 @router.get("/api/analysis-runs/{analysis_run_id}", response_model=AnalysisRunDetail)
 def get_analysis_run(analysis_run_id: UUID, db: Session = Depends(get_db)):
     return analysis_service.get_analysis_run(db, analysis_run_id)
+
+
+@router.post(
+    "/api/analysis-runs/{analysis_run_id}/execute",
+    response_model=AnalysisRunDetail,
+)
+def execute_analysis_run(analysis_run_id: UUID, db: Session = Depends(get_db)):
+    return analysis_execution_service.execute_analysis_run(db, analysis_run_id)
