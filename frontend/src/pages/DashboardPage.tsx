@@ -1,85 +1,209 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { getHealth, listRepositories } from "../api/client";
+import { getDashboardSummary } from "../api/client";
+import EmptyState from "../components/EmptyState";
 import ErrorMessage from "../components/ErrorMessage";
-import type { Repository } from "../types/api";
+import LoadingBlock from "../components/LoadingBlock";
+import StatusBadge from "../components/StatusBadge";
+import type { DashboardSummary } from "../types/api";
+
+const runStatuses = ["pending", "running", "completed", "error"] as const;
+const gateDecisions = ["pass", "fail"] as const;
 
 export default function DashboardPage() {
-  const [apiStatus, setApiStatus] = useState("checking");
-  const [repositories, setRepositories] = useState<Repository[]>([]);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
-    Promise.all([getHealth(), listRepositories()])
-      .then(([health, repositoryList]) => {
-        setApiStatus(health.status);
-        setRepositories(repositoryList);
-      })
-      .catch(setError);
+    getDashboardSummary().then(setSummary).catch(setError);
   }, []);
+
+  if (error) {
+    return (
+      <div className="page-stack">
+        <ErrorMessage error={error} />
+      </div>
+    );
+  }
+
+  if (!summary) {
+    return (
+      <div className="page-stack">
+        <LoadingBlock label="Loading dashboard summary" />
+      </div>
+    );
+  }
 
   return (
     <div className="page-stack">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Foundation</p>
-          <h1>PR Quality Gate Dashboard</h1>
+          <p className="eyebrow">Operations</p>
+          <h1>Quality Gate Dashboard</h1>
         </div>
         <Link className="button primary" to="/repositories">
           Repositories
         </Link>
       </header>
 
-      <ErrorMessage error={error} />
+      {summary.total_repositories === 0 && (
+        <EmptyState
+          action={
+            <Link className="button primary" to="/repositories">
+              Add Repository
+            </Link>
+          }
+          title="No repositories registered"
+        >
+          Register a repository to start creating mock Analysis Runs.
+        </EmptyState>
+      )}
 
-      <section className="metrics-grid">
-        <div className="metric">
-          <span>API Status</span>
-          <strong>{apiStatus}</strong>
-        </div>
+      <section className="metrics-grid four">
         <div className="metric">
           <span>Repositories</span>
-          <strong>{repositories.length}</strong>
+          <strong>{summary.total_repositories}</strong>
         </div>
         <div className="metric">
-          <span>Gate Pillars</span>
-          <strong>3</strong>
+          <span>Analysis Runs</span>
+          <strong>{summary.total_analysis_runs}</strong>
+        </div>
+        <div className="metric">
+          <span>Approval Rate</span>
+          <strong>
+            {summary.approval_rate === null ? "-" : `${summary.approval_rate}%`}
+          </strong>
+        </div>
+        <div className="metric highlight">
+          <span>Blocking Categories</span>
+          <strong>{summary.top_blocking_categories.length}</strong>
+        </div>
+      </section>
+
+      <section className="split-layout">
+        <div className="panel">
+          <div className="panel-header">
+            <h2>Run Status</h2>
+          </div>
+          <div className="compact-list">
+            {runStatuses.map((status) => (
+              <div className="compact-row" key={status}>
+                <StatusBadge value={status} />
+                <strong>{summary.run_status_counts[status]}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-header">
+            <h2>Gate Decisions</h2>
+          </div>
+          <div className="compact-list">
+            {gateDecisions.map((decision) => (
+              <div className="compact-row" key={decision}>
+                <StatusBadge value={decision} />
+                <strong>{summary.gate_decision_counts[decision]}</strong>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
       <section className="panel">
         <div className="panel-header">
-          <h2>Recent Repositories</h2>
+          <h2>Recent Analysis Runs</h2>
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Default branch</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {repositories.map((repository) => (
-                <tr key={repository.id}>
-                  <td>
-                    <Link to={`/repositories/${repository.id}`}>
-                      {repository.full_name}
-                    </Link>
-                  </td>
-                  <td>{repository.default_branch}</td>
-                  <td>{new Date(repository.updated_at).toLocaleString()}</td>
-                </tr>
-              ))}
-              {repositories.length === 0 && (
+        {summary.recent_analysis_runs.length === 0 ? (
+          <EmptyState title="No Analysis Runs">
+            Create a mock Analysis Run from a repository workspace.
+          </EmptyState>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
                 <tr>
-                  <td colSpan={3}>No repositories registered.</td>
+                  <th>Repository</th>
+                  <th>PR</th>
+                  <th>Status</th>
+                  <th>Decision</th>
+                  <th>Score</th>
+                  <th>Trigger</th>
+                  <th>Created</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {summary.recent_analysis_runs.map((run) => (
+                  <tr key={run.id}>
+                    <td>{run.repository_full_name}</td>
+                    <td>
+                      <Link to={`/analysis-runs/${run.id}`}>#{run.pr_number}</Link>
+                    </td>
+                    <td>
+                      <StatusBadge value={run.status} />
+                    </td>
+                    <td>
+                      <StatusBadge value={run.decision} />
+                    </td>
+                    <td>{run.score ?? "-"}</td>
+                    <td>
+                      <StatusBadge value={run.trigger_source} />
+                    </td>
+                    <td>{new Date(run.created_at).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="split-layout">
+        <div className="panel">
+          <div className="panel-header">
+            <h2>Findings by Category and Severity</h2>
+          </div>
+          {summary.finding_counts.length === 0 ? (
+            <EmptyState title="No Analysis Findings">
+              Findings will appear after failing mock scenarios.
+            </EmptyState>
+          ) : (
+            <div className="compact-list">
+              {summary.finding_counts.map((item) => (
+                <div
+                  className="compact-row"
+                  key={`${item.category}-${item.severity}`}
+                >
+                  <div className="badge-row">
+                    <StatusBadge value={item.category} />
+                    <StatusBadge value={item.severity} />
+                  </div>
+                  <strong>{item.count}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="panel">
+          <div className="panel-header">
+            <h2>Top Blocking Categories</h2>
+          </div>
+          {summary.top_blocking_categories.length === 0 ? (
+            <EmptyState title="No blocking findings">
+              Blocking categories will appear when findings block a gate.
+            </EmptyState>
+          ) : (
+            <div className="compact-list">
+              {summary.top_blocking_categories.map((item) => (
+                <div className="compact-row" key={item.category}>
+                  <StatusBadge value={item.category} />
+                  <strong>{item.count}</strong>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
     </div>

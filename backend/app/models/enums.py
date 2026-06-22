@@ -30,3 +30,16 @@ class FindingSeverity(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
+
+
+class CoverageLanguage(str, Enum):
+    PYTHON = "python"
+    TYPESCRIPT = "typescript"
+    JAVASCRIPT = "javascript"
+    GO = "go"
+
+
+class CoverageReportFormat(str, Enum):
+    COBERTURA_XML = "cobertura_xml"
+    LCOV = "lcov"
+    GO_COVERPROFILE = "go_coverprofile"

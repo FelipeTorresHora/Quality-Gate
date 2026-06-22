@@ -4,14 +4,14 @@ Foundation for a dashboard that evaluates whether a Pull Request passes a qualit
 
 ## Scope
 
-This repo currently implements the MVP tecnico de fundacao plus GitHub Read-only Basico:
+This repo currently implements the MVP tecnico de fundacao plus GitHub Read-only Basico plus the first synchronous real Gate Execution path:
 
-- FastAPI backend with health check, repositories, quality gate config, analysis history, mock scenarios, GitHub read-only PR listing/context, and signed Pull Request webhook triggers.
-- React dashboard with repository creation, config editing, PR listing, mock analysis creation, trigger-aware history, and analysis detail with captured Pull Request context.
+- FastAPI backend with health check, repositories, quality gate config, coverage execution config, analysis history, mock scenarios, GitHub read-only PR listing/context, signed Pull Request webhook triggers, and explicit pending-run execution.
+- React dashboard with repository creation, config editing, PR listing, mock analysis creation, real pending-run execution, trigger-aware history, and analysis detail with captured Pull Request context.
 - PostgreSQL models managed by SQLAlchemy and Alembic.
 - Docker Compose for backend, frontend, and Postgres.
 
-Not included yet: real PR analysis, LangChain execution, coverage scanners, security scanners, GitHub comments/statuses, Redis, workers, GitHub App, billing, or production deploy.
+Not included yet: LangChain execution, AI scoring, GitHub comments/statuses, Redis, workers, GitHub App, billing, per-run containers, or production deploy.
 
 ## Run Locally
 
@@ -103,6 +103,44 @@ https://example.ngrok-free.app/api/github/webhooks
 
 Open, reopen, synchronize, or mark a Pull Request as ready for review. The dashboard creates or reuses one pending Analysis Run for the registered repository, PR number, and head SHA. Draft Pull Requests, unknown repositories, unsupported events, and unsupported actions are accepted but ignored.
 
+### Real Gate Execution
+
+Webhook-created Analysis Runs start as `pending`. Execute them explicitly through the dashboard or:
+
+```bash
+curl -X POST http://localhost:8000/api/analysis-runs/{analysis_run_id}/execute
+```
+
+Execution is synchronous in the backend process. The backend creates a temporary workspace, clones the repository, checks out the captured base and head SHAs, runs configured coverage commands, runs deterministic security and technical debt gates, then stores normalized snapshots and findings.
+
+Runner environment variables:
+
+```env
+WORKDIR=/tmp/pr-quality-dashboard
+COMMAND_TIMEOUT_SECONDS=600
+KEEP_WORKDIR=false
+```
+
+Important MVP risk: repository commands run in the backend/local service environment, not in a dedicated per-run container. Only execute code from repositories you trust in this phase. The runner strips app secrets such as GitHub, OpenAI, LangSmith, and `DATABASE_URL` from child process environment variables, but this is not a complete sandbox.
+
+Coverage execution is configured per repository through:
+
+- `GET /api/repositories/{repository_id}/coverage-execution-config`
+- `PUT /api/repositories/{repository_id}/coverage-execution-config`
+
+Initial defaults:
+
+- Python: `pip install -r requirements.txt`, `pytest --cov=. --cov-report=xml:coverage.xml`, `coverage.xml`, `cobertura_xml`
+- TypeScript: `npm ci`, `npm test -- --coverage`, `coverage/lcov.info`, `lcov`
+- JavaScript: `npm ci`, `npm test -- --coverage`, `coverage/lcov.info`, `lcov`
+- Go: `go mod download`, `go test ./... -coverprofile=coverage.out`, `coverage.out`, `go_coverprofile`
+
+Required local tooling depends on the repository language and configured gates:
+
+- Coverage: pytest/coverage.py for Python, npm test coverage with LCOV for JavaScript/TypeScript, Go toolchain for Go.
+- Generic security scanners: Semgrep and detect-secrets.
+- Python security scanners: Bandit and pip-audit.
+
 Official references:
 
 - GitHub webhook signature validation: https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries
@@ -170,9 +208,12 @@ Official reference: https://docs.langchain.com/langsmith/create-account-api-key
 - `GET /api/repositories/{repository_id}/pull-requests/{pr_number}/context`
 - `GET /api/repositories/{repository_id}/quality-gate-config`
 - `PUT /api/repositories/{repository_id}/quality-gate-config`
+- `GET /api/repositories/{repository_id}/coverage-execution-config`
+- `PUT /api/repositories/{repository_id}/coverage-execution-config`
 - `GET /api/repositories/{repository_id}/analysis-runs`
 - `POST /api/repositories/{repository_id}/analysis-runs/mock`
 - `GET /api/analysis-runs/{analysis_run_id}`
+- `POST /api/analysis-runs/{analysis_run_id}/execute`
 - `POST /api/github/webhooks`
 
 ## Mock Scenarios

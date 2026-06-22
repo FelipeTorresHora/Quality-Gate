@@ -24,6 +24,12 @@ class Repository(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         lazy="selectin",
         uselist=False,
     )
+    coverage_execution_config: Mapped["CoverageExecutionConfig"] = relationship(
+        back_populates="repository",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        uselist=False,
+    )
     analysis_runs: Mapped[list["AnalysisRun"]] = relationship(
         back_populates="repository", cascade="all, delete-orphan"
     )

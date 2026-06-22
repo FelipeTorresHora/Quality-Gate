@@ -88,6 +88,44 @@ export type AnalysisRunSummary = {
   finished_at: string | null;
 };
 
+export type CoverageExecutionConfig = {
+  id: string;
+  repository_id: string;
+  language: "python" | "typescript" | "javascript" | "go";
+  install_command: string;
+  test_command: string;
+  report_path: string;
+  report_format: "cobertura_xml" | "lcov" | "go_coverprofile";
+  created_at: string;
+  updated_at: string;
+};
+
+export type DashboardRecentAnalysisRun = AnalysisRunSummary & {
+  repository_full_name: string;
+};
+
+export type DashboardFindingCount = {
+  category: "coverage" | "security" | "technical_debt";
+  severity: "low" | "medium" | "high" | "critical";
+  count: number;
+};
+
+export type DashboardBlockingCategory = {
+  category: "coverage" | "security" | "technical_debt";
+  count: number;
+};
+
+export type DashboardSummary = {
+  total_repositories: number;
+  total_analysis_runs: number;
+  run_status_counts: Record<AnalysisRunSummary["status"], number>;
+  gate_decision_counts: Record<NonNullable<AnalysisRunSummary["decision"]>, number>;
+  approval_rate: number | null;
+  recent_analysis_runs: DashboardRecentAnalysisRun[];
+  finding_counts: DashboardFindingCount[];
+  top_blocking_categories: DashboardBlockingCategory[];
+};
+
 export type AnalysisRunDetail = AnalysisRunSummary & {
   coverage_result_json: Record<string, unknown>;
   security_result_json: Record<string, unknown>;
@@ -97,6 +135,21 @@ export type AnalysisRunDetail = AnalysisRunSummary & {
   diff_truncated: boolean;
   final_report_markdown: string | null;
   findings: AnalysisFinding[];
+};
+
+export type PullRequestReviewRun = {
+  id: string;
+  status: AnalysisRunSummary["status"];
+  decision: AnalysisRunSummary["decision"];
+  score: number | null;
+  trigger_source: AnalysisTriggerSource;
+  head_sha: string;
+  created_at: string;
+};
+
+export type PullRequestReviewState = {
+  state: "not_run" | "current" | "outdated";
+  analysis_run: PullRequestReviewRun | null;
 };
 
 export type GitHubPullRequest = {
@@ -111,6 +164,7 @@ export type GitHubPullRequest = {
   html_url: string;
   created_at: string;
   updated_at: string;
+  review_state: PullRequestReviewState;
 };
 
 export type MockScenario =

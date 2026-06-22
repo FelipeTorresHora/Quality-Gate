@@ -8,10 +8,12 @@ from app.core.errors import AppError
 from app.schemas.github import (
     ChangedFileSnapshot,
     GitHubPullRequestRead,
+    GitHubPullRequestWithReviewState,
     PullRequestContextRead,
     PullRequestSnapshot,
 )
 from app.schemas.repository import RepositoryCreate
+from app.services import pull_request_review_service
 from app.services.repository_service import create_repository, get_repository
 
 MAX_DIFF_BYTES = 5 * 1024 * 1024
@@ -156,12 +158,26 @@ def create_repository_from_github(db: Session, owner: str, name: str):
     return create_repository(db, payload)
 
 
-def list_repository_pull_requests(db: Session, repository_id):
+def list_repository_pull_requests(
+    db: Session, repository_id
+) -> list[GitHubPullRequestWithReviewState]:
     settings = get_settings()
     repository = get_repository(db, repository_id)
-    return GitHubClient(settings.github_token).list_pull_requests(
+    if repository.github_repo_id is None:
+        return []
+
+    pull_requests = GitHubClient(settings.github_token).list_pull_requests(
         repository.owner, repository.name
     )
+    return [
+        GitHubPullRequestWithReviewState(
+            **pull_request.model_dump(),
+            review_state=pull_request_review_service.get_pull_request_review_state(
+                db, repository.id, pull_request
+            ),
+        )
+        for pull_request in pull_requests
+    ]
 
 
 def get_repository_pull_request_context(db: Session, repository_id, pr_number: int):
