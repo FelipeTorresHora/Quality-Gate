@@ -173,3 +173,30 @@ def require_repository_admin(
             "Repository admin permission is required.",
         )
     return access
+
+
+def get_active_installation_for_repository(
+    db: Session,
+    repository_id: UUID,
+) -> InstallationRepository:
+    link = db.scalar(
+        select(InstallationRepository)
+        .join(
+            GitHubAppInstallation,
+            GitHubAppInstallation.id
+            == InstallationRepository.installation_id,
+        )
+        .where(
+            InstallationRepository.repository_id == repository_id,
+            GitHubAppInstallation.active.is_(True),
+            GitHubAppInstallation.suspended_at.is_(None),
+        )
+        .limit(1)
+    )
+    if link is None:
+        raise AppError(
+            409,
+            "github_installation_required",
+            "An active GitHub App installation is required.",
+        )
+    return link

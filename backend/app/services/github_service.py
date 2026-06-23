@@ -14,6 +14,7 @@ from app.schemas.github import (
 )
 from app.schemas.repository import RepositoryCreate
 from app.services import pull_request_review_service
+from app.services import github_app_auth_service, github_installation_service
 from app.services.repository_service import create_repository, get_repository
 
 MAX_DIFF_BYTES = 5 * 1024 * 1024
@@ -103,6 +104,64 @@ class GitHubClient:
         diff = content[:MAX_DIFF_BYTES].decode("utf-8", errors="replace")
         return diff, truncated
 
+    def list_issue_comments(
+        self, owner: str, name: str, pr_number: int
+    ) -> list[dict[str, Any]]:
+        response = httpx.get(
+            f"{self.base_url}/repos/{owner}/{name}/issues/{pr_number}/comments",
+            headers=self._headers(),
+            params={"per_page": 100},
+            timeout=20,
+        )
+        self._raise_for_response(response, owner, name)
+        return response.json()
+
+    def create_issue_comment(
+        self, owner: str, name: str, pr_number: int, body: str
+    ) -> dict[str, Any]:
+        response = httpx.post(
+            f"{self.base_url}/repos/{owner}/{name}/issues/{pr_number}/comments",
+            headers=self._headers(),
+            json={"body": body},
+            timeout=20,
+        )
+        self._raise_for_response(response, owner, name)
+        return response.json()
+
+    def update_issue_comment(
+        self, owner: str, name: str, comment_id: int, body: str
+    ) -> dict[str, Any]:
+        response = httpx.patch(
+            f"{self.base_url}/repos/{owner}/{name}/issues/comments/{comment_id}",
+            headers=self._headers(),
+            json={"body": body},
+            timeout=20,
+        )
+        self._raise_for_response(response, owner, name)
+        return response.json()
+
+    def create_commit_status(
+        self,
+        owner: str,
+        name: str,
+        sha: str,
+        state: str,
+        context: str,
+        description: str,
+    ) -> dict[str, Any]:
+        response = httpx.post(
+            f"{self.base_url}/repos/{owner}/{name}/statuses/{sha}",
+            headers=self._headers(),
+            json={
+                "state": state,
+                "context": context,
+                "description": description,
+            },
+            timeout=20,
+        )
+        self._raise_for_response(response, owner, name)
+        return response.json()
+
     def get_pull_request_context(
         self, owner: str, name: str, pr_number: int
     ) -> PullRequestContextRead:
@@ -158,15 +217,33 @@ def create_repository_from_github(db: Session, owner: str, name: str):
     return create_repository(db, payload)
 
 
+def installation_client_for_repository(
+    db: Session,
+    repository_id,
+) -> GitHubClient:
+    installation_link = (
+        github_installation_service.get_active_installation_for_repository(
+            db,
+            repository_id,
+        )
+    )
+    token = github_app_auth_service.generate_installation_token(
+        installation_link.installation.installation_id
+    )
+    return GitHubClient(token)
+
+
 def list_repository_pull_requests(
     db: Session, repository_id
 ) -> list[GitHubPullRequestWithReviewState]:
-    settings = get_settings()
     repository = get_repository(db, repository_id)
     if repository.github_repo_id is None:
         return []
 
-    pull_requests = GitHubClient(settings.github_token).list_pull_requests(
+    pull_requests = installation_client_for_repository(
+        db,
+        repository_id,
+    ).list_pull_requests(
         repository.owner, repository.name
     )
     return [
@@ -181,9 +258,11 @@ def list_repository_pull_requests(
 
 
 def get_repository_pull_request_context(db: Session, repository_id, pr_number: int):
-    settings = get_settings()
     repository = get_repository(db, repository_id)
-    return GitHubClient(settings.github_token).get_pull_request_context(
+    return installation_client_for_repository(
+        db,
+        repository_id,
+    ).get_pull_request_context(
         repository.owner, repository.name, pr_number
     )
 

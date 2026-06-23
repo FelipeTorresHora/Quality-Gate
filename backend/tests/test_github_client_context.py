@@ -1,11 +1,72 @@
 import httpx
 
 from app.services.github_service import GitHubClient, MAX_DIFF_BYTES
+from app.services.runner_service import CommandResult, repository_clone_url
 
 
 def _github_response(**kwargs):
     request = httpx.Request("GET", "https://api.github.com")
     return httpx.Response(request=request, **kwargs)
+
+
+def test_github_client_uses_provided_installation_token(monkeypatch):
+    seen_headers = []
+
+    class FakeResponse:
+        status_code = 200
+        headers = {}
+
+        def json(self):
+            return []
+
+        @property
+        def is_error(self):
+            return False
+
+    def fake_get(url, headers, params=None, timeout=20):
+        seen_headers.append(headers)
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "app.services.github_service.httpx.get",
+        fake_get,
+    )
+
+    client = GitHubClient("installation-token")
+    client.list_pull_requests("octo-org", "quality-api")
+
+    assert seen_headers[0]["Authorization"] == "Bearer installation-token"
+
+
+def test_repository_clone_url_accepts_installation_token():
+    url = repository_clone_url(
+        "octo-org",
+        "quality-api",
+        "installation-token",
+    )
+
+    assert url == (
+        "https://x-access-token:installation-token"
+        "@github.com/octo-org/quality-api.git"
+    )
+
+
+def test_command_snapshot_redacts_clone_token():
+    result = CommandResult(
+        command=(
+            "git clone https://x-access-token:installation-token"
+            "@github.com/octo-org/quality-api.git repo"
+        ),
+        exit_code=0,
+        stdout="",
+        stderr="",
+        duration_seconds=0.1,
+    )
+
+    assert result.to_snapshot()["command"] == (
+        "git clone https://x-access-token:***"
+        "@github.com/octo-org/quality-api.git repo"
+    )
 
 
 def test_pull_request_context_maps_paginated_files_and_truncates_large_diff(monkeypatch):
