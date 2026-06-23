@@ -1,11 +1,15 @@
 import hashlib
 import hmac
 import json
+from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
 from app.core.config import get_settings
 from app.core.errors import AppError
+from app.models.enums import AnalysisRunStatus
+from app.services import github_webhook_service
 
 
 WEBHOOK_SECRET = "test-webhook-secret"
@@ -206,6 +210,10 @@ def test_pull_request_webhook_creates_pending_analysis_run(
     client, repository, webhook_secret, monkeypatch, action
 ):
     _patch_context(monkeypatch)
+    monkeypatch.setattr(
+        "app.services.analysis_execution_service.execute_analysis_run",
+        lambda db, analysis_run_id: None,
+    )
 
     response = _post_webhook(client, _pull_request_payload(action=action))
 
@@ -232,10 +240,153 @@ def test_pull_request_webhook_creates_pending_analysis_run(
     assert "diff_snapshot" not in run
 
 
+def test_pull_request_webhook_schedules_analysis_execution(
+    monkeypatch, client, repository
+):
+    executed = []
+
+    monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", "secret")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        "app.services.github_webhook_service._has_valid_signature",
+        lambda body, secret, signature_header: True,
+    )
+    monkeypatch.setattr(
+        "app.services.github_service.GitHubClient.get_pull_request_context",
+        lambda self, owner, name, pr_number: {
+            "pull_request": {
+                "number": pr_number,
+                "title": "Improve quality",
+                "body": None,
+                "state": "open",
+                "draft": False,
+                "author_login": "octocat",
+                "html_url": "https://github.com/horinha04/meu-projeto/pull/1",
+                "base_ref": "main",
+                "head_ref": "feature",
+                "head_sha": "head-sha",
+                "base_sha": "base-sha",
+                "created_at": "2026-06-23T00:00:00Z",
+                "updated_at": "2026-06-23T00:00:00Z",
+            },
+            "changed_files": [],
+            "diff_snapshot": "diff --git a/a.py b/a.py",
+            "diff_truncated": False,
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.analysis_execution_service.execute_analysis_run",
+        lambda db, analysis_run_id: executed.append(str(analysis_run_id)),
+    )
+
+    response = client.post(
+        "/api/github/webhooks",
+        headers={
+            "X-GitHub-Event": "pull_request",
+            "X-Hub-Signature-256": "sha256=test",
+        },
+        json={
+            "action": "opened",
+            "installation": {"id": 99},
+            "repository": {"full_name": repository["full_name"]},
+            "pull_request": {
+                "number": 1,
+                "title": "Improve quality",
+                "body": None,
+                "state": "open",
+                "draft": False,
+                "html_url": "https://github.com/horinha04/meu-projeto/pull/1",
+                "user": {"login": "octocat"},
+                "base": {"ref": "main", "sha": "base-sha"},
+                "head": {"ref": "feature", "sha": "head-sha"},
+                "created_at": "2026-06-23T00:00:00Z",
+                "updated_at": "2026-06-23T00:00:00Z",
+            },
+        },
+    )
+
+    assert response.status_code == 202
+    assert response.json()["analysis_run_id"] is not None
+    assert executed
+    get_settings.cache_clear()
+
+
+def test_webhook_service_schedules_new_pending_run_without_database(monkeypatch):
+    repository_id = uuid4()
+    analysis_run_id = uuid4()
+    scheduled = []
+    payload = _pull_request_payload()
+    body = json.dumps(payload).encode()
+
+    monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", "secret")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        github_webhook_service,
+        "_has_valid_signature",
+        lambda body, secret, signature_header: True,
+    )
+    monkeypatch.setattr(
+        github_webhook_service,
+        "get_repository_by_full_name",
+        lambda db, full_name: SimpleNamespace(
+            id=repository_id,
+            owner="horinha04",
+            name="meu-projeto",
+        ),
+    )
+    monkeypatch.setattr(
+        github_webhook_service.github_service,
+        "installation_client_for_repository",
+        lambda db, current_repository_id: SimpleNamespace(
+            get_pull_request_context=lambda owner, name, pr_number: (
+                _pull_request_context(number=pr_number)
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        github_webhook_service.analysis_service,
+        "get_analysis_run_by_pr_head",
+        lambda db, current_repository_id, pr_number, head_sha: None,
+    )
+    monkeypatch.setattr(
+        github_webhook_service.analysis_service,
+        "create_or_reuse_webhook_analysis_run",
+        lambda db, current_repository_id, context: SimpleNamespace(
+            id=analysis_run_id,
+            status=AnalysisRunStatus.PENDING,
+        ),
+    )
+    monkeypatch.setattr(
+        github_webhook_service,
+        "_execute_run_by_id",
+        lambda current_analysis_run_id: scheduled.append(current_analysis_run_id),
+    )
+
+    class ImmediateBackgroundTasks:
+        def add_task(self, function, *args):
+            function(*args)
+
+    result = github_webhook_service.process_github_webhook(
+        object(),
+        body,
+        "pull_request",
+        "sha256=test",
+        background_tasks=ImmediateBackgroundTasks(),
+    )
+
+    assert result.analysis_run_id == analysis_run_id
+    assert scheduled == [analysis_run_id]
+    get_settings.cache_clear()
+
+
 def test_pull_request_webhook_is_idempotent_for_same_repository_pr_and_head_sha(
     client, repository, webhook_secret, monkeypatch
 ):
     current_sha = {"value": "abc123"}
+    monkeypatch.setattr(
+        "app.services.analysis_execution_service.execute_analysis_run",
+        lambda db, analysis_run_id: None,
+    )
 
     from app.services.github_service import GitHubClient
 

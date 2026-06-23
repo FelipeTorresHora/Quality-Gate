@@ -3,13 +3,14 @@ import hmac
 import json
 from typing import Any
 
+from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import AppError
+from app.models.enums import AnalysisRunStatus
 from app.schemas.github import GitHubWebhookResult, PullRequestContextRead
-from app.services import analysis_service
-from app.services.github_service import GitHubClient
+from app.services import analysis_execution_service, analysis_service, github_service
 from app.services.repository_service import get_repository_by_full_name
 
 SUPPORTED_PULL_REQUEST_ACTIONS = {
@@ -25,6 +26,7 @@ def process_github_webhook(
     body: bytes,
     event: str | None,
     signature_header: str | None,
+    background_tasks: BackgroundTasks | None = None,
 ) -> GitHubWebhookResult:
     settings = get_settings()
     secret = settings.github_webhook_secret
@@ -62,17 +64,29 @@ def process_github_webhook(
         return _ignored("unknown_repository")
 
     fallback_snapshot = _pull_request_snapshot_from_payload(pull_request)
+    created_new = False
     try:
-        context = GitHubClient(settings.github_token).get_pull_request_context(
+        context = github_service.installation_client_for_repository(
+            db,
+            repository.id,
+        ).get_pull_request_context(
             repository.owner,
             repository.name,
             int(fallback_snapshot["number"]),
         )
+        context_model = PullRequestContextRead.model_validate(context)
+        existing = analysis_service.get_analysis_run_by_pr_head(
+            db,
+            repository.id,
+            context_model.pull_request.number,
+            context_model.pull_request.head_sha,
+        )
         run = analysis_service.create_or_reuse_webhook_analysis_run(
             db,
             repository.id,
-            PullRequestContextRead.model_validate(context),
+            context_model,
         )
+        created_new = existing is None and run.status == AnalysisRunStatus.PENDING
     except Exception:
         run = analysis_service.create_or_reuse_error_webhook_analysis_run(
             db,
@@ -80,11 +94,27 @@ def process_github_webhook(
             fallback_snapshot,
         )
 
+    if created_new:
+        if background_tasks is not None:
+            background_tasks.add_task(_execute_run_by_id, run.id)
+        else:
+            analysis_execution_service.execute_analysis_run(db, run.id)
+
     return GitHubWebhookResult(
         ignored=False,
         reason=None,
         analysis_run_id=run.id,
     )
+
+
+def _execute_run_by_id(analysis_run_id):
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        analysis_execution_service.execute_analysis_run(db, analysis_run_id)
+    finally:
+        db.close()
 
 
 def _has_valid_signature(
