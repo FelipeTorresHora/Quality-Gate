@@ -11,7 +11,7 @@ def test_manual_repository_creation_endpoint_is_removed(client, repository):
         json={"owner": "octo-org", "name": "quality-api", "default_branch": "main"},
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 405
 
 
 def test_github_repository_creation_endpoint_is_removed(client, repository):
@@ -20,7 +20,7 @@ def test_github_repository_creation_endpoint_is_removed(client, repository):
         json={"owner": "octo-org", "name": "quality-api"},
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 405
 
 
 def test_list_repositories_returns_synced_repository(client, repository):

@@ -18,10 +18,19 @@ depends_on: str | Sequence[str] | None = None
 
 
 coverage_language = postgresql.ENUM(
-    "python", "typescript", "javascript", "go", name="coverage_language"
+    "python",
+    "typescript",
+    "javascript",
+    "go",
+    name="coverage_language",
+    create_type=False,
 )
 coverage_report_format = postgresql.ENUM(
-    "cobertura_xml", "lcov", "go_coverprofile", name="coverage_report_format"
+    "cobertura_xml",
+    "lcov",
+    "go_coverprofile",
+    name="coverage_report_format",
+    create_type=False,
 )
 
 

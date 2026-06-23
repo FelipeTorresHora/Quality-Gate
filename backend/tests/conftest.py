@@ -13,7 +13,6 @@ os.environ.setdefault(
     "DATABASE_URL",
     "postgresql+psycopg://pr_quality:pr_quality@localhost:5432/pr_quality_test",
 )
-os.environ.setdefault("GITHUB_TOKEN", "")
 
 from app.db.base import Base  # noqa: E402
 from app.db.session import engine  # noqa: E402
