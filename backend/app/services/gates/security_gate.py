@@ -12,6 +12,7 @@ def run_security_gate(
     repository,
     quality_config,
     coverage_config,
+    repository_token: str | None = None,
 ) -> GateResult:
     from app.services.runner_service import RunnerError, RunnerWorkspace, repository_clone_url
 
@@ -23,7 +24,12 @@ def run_security_gate(
 
     try:
         with RunnerWorkspace(
-            analysis_run.id, repository_clone_url(repository.owner, repository.name)
+            analysis_run.id,
+            repository_clone_url(
+                repository.owner,
+                repository.name,
+                repository_token,
+            ),
         ) as workspace:
             workspace.checkout(analysis_run.head_sha)
             for scanner, command in scanners:

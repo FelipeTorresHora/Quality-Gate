@@ -8,8 +8,12 @@ from app.core.errors import AppError
 from app.models.analysis_finding import AnalysisFinding
 from app.models.analysis_run import AnalysisRun
 from app.models.enums import AnalysisRunStatus, GateDecision
+from app.models.repository import Repository
+from app.services.agent import quality_agent
 from app.services.gates import coverage_gate, security_gate, technical_debt_gate
 from app.services.gates.types import GateFinding, GateResult
+from app.services import report_service
+from app.services import github_app_auth_service, github_installation_service
 
 
 def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
@@ -21,6 +25,16 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
             "Only pending analysis runs can be executed.",
         )
 
+    installation_link = (
+        github_installation_service.get_active_installation_for_repository(
+            db,
+            run.repository_id,
+        )
+    )
+    repository_token = github_app_auth_service.generate_installation_token(
+        installation_link.installation.installation_id
+    )
+
     now = datetime.now(UTC)
     run.status = AnalysisRunStatus.RUNNING
     run.decision = None
@@ -30,6 +44,7 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     run.coverage_result_json = {}
     run.security_result_json = {}
     run.technical_debt_result_json = {}
+    run.ai_review_json = {}
     run.started_at = now
     run.finished_at = None
     db.execute(delete(AnalysisFinding).where(AnalysisFinding.analysis_run_id == run.id))
@@ -42,6 +57,7 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
         repository=run.repository,
         quality_config=run.repository.quality_gate_config,
         coverage_config=run.repository.coverage_execution_config,
+        repository_token=repository_token,
     )
     run.coverage_result_json = coverage.snapshot
     _persist_findings(db, run, coverage.findings)
@@ -55,6 +71,7 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
         repository=run.repository,
         quality_config=run.repository.quality_gate_config,
         coverage_config=run.repository.coverage_execution_config,
+        repository_token=repository_token,
     )
     run.security_result_json = security.snapshot
     _persist_findings(db, run, security.findings)
@@ -68,6 +85,7 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
         repository=run.repository,
         quality_config=run.repository.quality_gate_config,
         coverage_config=run.repository.coverage_execution_config,
+        repository_token=repository_token,
     )
     run.technical_debt_result_json = technical_debt.snapshot
     _persist_findings(db, run, technical_debt.findings)
@@ -82,7 +100,16 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
         if any(result.status == "fail" for result in gate_results)
         else GateDecision.PASS
     )
-    run.score = None
+    run.ai_review_json = quality_agent.generate_ai_review_snapshot(analysis_run=run)
+    run.score = (
+        float(run.ai_review_json["score"])
+        if run.ai_review_json.get("status") == "generated"
+        and isinstance(run.ai_review_json.get("score"), int | float)
+        else None
+    )
+    run.final_report_markdown = report_service.build_final_report(
+        run, run.ai_review_json
+    )
     run.finished_at = datetime.now(UTC)
     db.commit()
     return _get_run_for_execution(db, run.id)
@@ -94,7 +121,12 @@ def _get_run_for_execution(db: Session, analysis_run_id: UUID) -> AnalysisRun:
         select(AnalysisRun)
         .options(
             selectinload(AnalysisRun.findings),
-            selectinload(AnalysisRun.repository),
+            selectinload(AnalysisRun.repository).selectinload(
+                Repository.quality_gate_config
+            ),
+            selectinload(AnalysisRun.repository).selectinload(
+                Repository.coverage_execution_config
+            ),
         )
         .where(AnalysisRun.id == analysis_run_id)
     )
@@ -128,6 +160,7 @@ def _finish_with_error(
     run.decision = None
     run.score = None
     run.error_message = error_message or "Gate execution failed."
+    run.final_report_markdown = report_service.build_operational_error_report(run)
     run.finished_at = datetime.now(UTC)
     db.commit()
     return _get_run_for_execution(db, run.id)

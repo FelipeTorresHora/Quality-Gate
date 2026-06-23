@@ -17,6 +17,7 @@ def test_create_mock_analysis_run_from_scenario(client, repository):
     assert run["status"] == "completed"
     assert run["decision"] == "fail"
     assert run["score"] == 62
+    assert run["ai_review_json"] == {}
     assert run["trigger_source"] == "mock"
     assert run["error_message"] is None
     assert run["pull_request_snapshot_json"] == {}
@@ -59,5 +60,6 @@ def test_get_analysis_run_detail(client, repository):
     run = response.json()
     assert run["id"] == created["id"]
     assert run["decision"] == "fail"
+    assert run["ai_review_json"] == {}
     assert run["coverage_result_json"]["status"] == "fail"
     assert run["findings"][0]["category"] == "coverage"
