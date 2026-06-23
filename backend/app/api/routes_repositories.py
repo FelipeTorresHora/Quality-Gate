@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -10,10 +10,9 @@ from app.models.enums import AnalysisRunStatus
 from app.schemas.analysis import AnalysisRunDetail
 from app.schemas.github import (
     GitHubPullRequestWithReviewState,
-    GitHubRepositoryCreate,
     PullRequestContextRead,
 )
-from app.schemas.repository import RepositoryCreate, RepositoryRead
+from app.schemas.repository import RepositoryRead
 from app.services import (
     analysis_execution_service,
     analysis_service,
@@ -31,20 +30,6 @@ def list_repositories(
     current_user: User = Depends(get_current_user),
 ):
     return repository_service.list_repositories_for_user(db, current_user)
-
-
-@router.post("", response_model=RepositoryRead, status_code=status.HTTP_201_CREATED)
-def create_repository(payload: RepositoryCreate, db: Session = Depends(get_db)):
-    return repository_service.create_repository(db, payload)
-
-
-@router.post(
-    "/github", response_model=RepositoryRead, status_code=status.HTTP_201_CREATED
-)
-def create_repository_from_github(
-    payload: GitHubRepositoryCreate, db: Session = Depends(get_db)
-):
-    return github_service.create_repository_from_github(db, payload.owner, payload.name)
 
 
 @router.get("/{repository_id}", response_model=RepositoryRead)
