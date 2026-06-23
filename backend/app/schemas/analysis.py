@@ -1,8 +1,7 @@
 from datetime import datetime
-from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from app.models.enums import (
     AnalysisRunStatus,
@@ -11,21 +10,6 @@ from app.models.enums import (
     FindingSeverity,
     GateDecision,
 )
-
-MockScenario = Literal[
-    "passing",
-    "coverage_fail",
-    "security_fail",
-    "technical_debt_fail",
-    "mixed_fail",
-]
-
-
-class MockAnalysisRunCreate(BaseModel):
-    scenario: MockScenario = "mixed_fail"
-    pr_number: int = Field(default=1, ge=1)
-    head_sha: str = "mock-head-sha"
-
 
 class AnalysisFindingRead(BaseModel):
     id: UUID

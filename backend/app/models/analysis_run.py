@@ -61,7 +61,7 @@ class AnalysisRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             native_enum=True,
         ),
         nullable=False,
-        default=AnalysisTriggerSource.MOCK,
+        default=AnalysisTriggerSource.MANUAL,
     )
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
     coverage_result_json: Mapped[dict] = mapped_column(
