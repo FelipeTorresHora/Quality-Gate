@@ -54,7 +54,7 @@ export default function RepositoryAnalysisRunsPage() {
         <LoadingBlock label="Loading Analysis Runs" />
       ) : runs.length === 0 ? (
         <EmptyState title="No Analysis Runs">
-          Run a mock analysis from the Pull Requests tab.
+          Analyze a Pull Request from the Pull Requests tab.
         </EmptyState>
       ) : (
         <div className="table-wrap">

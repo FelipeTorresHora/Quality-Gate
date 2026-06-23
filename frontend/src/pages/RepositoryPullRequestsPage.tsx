@@ -1,177 +1,78 @@
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
 
-import {
-  createMockAnalysisRun,
-  executeAnalysisRun,
-  listPullRequests
-} from "../api/client";
+import { analyzePullRequest, listPullRequests } from "../api/client";
 import EmptyState from "../components/EmptyState";
 import ErrorMessage from "../components/ErrorMessage";
 import LoadingBlock from "../components/LoadingBlock";
 import StatusBadge from "../components/StatusBadge";
+import type { GitHubPullRequest } from "../types/api";
 import type { RepositoryWorkspaceContext } from "./RepositoryDetailPage";
-import type { GitHubPullRequest, MockScenario } from "../types/api";
-
-const scenarios: MockScenario[] = [
-  "passing",
-  "coverage_fail",
-  "security_fail",
-  "technical_debt_fail",
-  "mixed_fail"
-];
 
 export default function RepositoryPullRequestsPage() {
   const { repository } = useOutletContext<RepositoryWorkspaceContext>();
   const navigate = useNavigate();
   const [pullRequests, setPullRequests] = useState<GitHubPullRequest[]>([]);
-  const [selectedScenario, setSelectedScenario] =
-    useState<MockScenario>("mixed_fail");
-  const [manualPrNumber, setManualPrNumber] = useState(1);
-  const [manualHeadSha, setManualHeadSha] = useState("mock-head-sha");
-  const [loading, setLoading] = useState(repository.github_repo_id !== null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [actionError, setActionError] = useState<unknown>(null);
-  const [executingRunId, setExecutingRunId] = useState<string | null>(null);
+  const [analyzingPrNumber, setAnalyzingPrNumber] = useState<number | null>(null);
 
   useEffect(() => {
-    if (repository.github_repo_id === null) {
-      setPullRequests([]);
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     setError(null);
     listPullRequests(repository.id)
       .then(setPullRequests)
       .catch(setError)
       .finally(() => setLoading(false));
-  }, [repository.id, repository.github_repo_id]);
+  }, [repository.id]);
 
-  async function createScenario(prNumber: number, headSha: string) {
+  async function analyze(prNumber: number) {
     setActionError(null);
+    setAnalyzingPrNumber(prNumber);
     try {
-      const run = await createMockAnalysisRun(repository.id, {
-        scenario: selectedScenario,
-        pr_number: prNumber,
-        head_sha: headSha
-      });
+      const run = await analyzePullRequest(repository.id, prNumber);
       navigate(`/analysis-runs/${run.id}`);
     } catch (caught) {
       setActionError(caught);
+      setAnalyzingPrNumber(null);
     }
-  }
-
-  async function executeRun(analysisRunId: string) {
-    setActionError(null);
-    setExecutingRunId(analysisRunId);
-    try {
-      const run = await executeAnalysisRun(analysisRunId);
-      navigate(`/analysis-runs/${run.id}`);
-    } catch (caught) {
-      setActionError(caught);
-    } finally {
-      setExecutingRunId(null);
-    }
-  }
-
-  function handleManualSubmit(event: FormEvent) {
-    event.preventDefault();
-    createScenario(manualPrNumber, manualHeadSha);
   }
 
   return (
     <div className="page-stack">
       <ErrorMessage error={actionError} />
-
       <section className="panel">
         <div className="panel-header">
           <div>
-            <h2>Mock Analysis Controls</h2>
+            <h2>Pull Request Review Queue</h2>
             <p className="panel-subtitle">
-              Create mock-only Analysis Runs for dashboard validation.
+              Review state is matched against each live Pull Request head SHA.
             </p>
           </div>
         </div>
-        <form className="form-grid" onSubmit={handleManualSubmit}>
-          <label>
-            Scenario
-            <select
-              value={selectedScenario}
-              onChange={(event) =>
-                setSelectedScenario(event.target.value as MockScenario)
-              }
-            >
-              {scenarios.map((scenario) => (
-                <option key={scenario} value={scenario}>
-                  {scenario}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            PR number
-            <input
-              min="1"
-              type="number"
-              value={manualPrNumber}
-              onChange={(event) => setManualPrNumber(Number(event.target.value))}
-            />
-          </label>
-          <label>
-            Head SHA
-            <input
-              value={manualHeadSha}
-              onChange={(event) => setManualHeadSha(event.target.value)}
-            />
-          </label>
-          <button className="button primary" type="submit">
-            Create Mock Analysis
-          </button>
-        </form>
+        <ErrorMessage error={error} />
+        {loading ? (
+          <LoadingBlock label="Loading Pull Requests" />
+        ) : (
+          <PullRequestTable
+            analyzingPrNumber={analyzingPrNumber}
+            onAnalyze={analyze}
+            pullRequests={pullRequests}
+          />
+        )}
       </section>
-
-      {repository.github_repo_id === null ? (
-        <EmptyState title="Manual repository">
-          GitHub Pull Requests are not available for manual repositories.
-        </EmptyState>
-      ) : (
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <h2>Pull Request Review Queue</h2>
-              <p className="panel-subtitle">
-                Latest backend review state is matched against the live PR head SHA.
-              </p>
-            </div>
-          </div>
-          <ErrorMessage error={error} />
-          {loading ? (
-            <LoadingBlock label="Loading Pull Requests" />
-          ) : (
-            <PullRequestTable
-              executingRunId={executingRunId}
-              onCreateMockAnalysis={createScenario}
-              onExecuteAnalysis={executeRun}
-              pullRequests={pullRequests}
-            />
-          )}
-        </section>
-      )}
     </div>
   );
 }
 
 function PullRequestTable({
-  executingRunId,
-  onCreateMockAnalysis,
-  onExecuteAnalysis,
+  analyzingPrNumber,
+  onAnalyze,
   pullRequests
 }: {
-  executingRunId: string | null;
-  onCreateMockAnalysis: (prNumber: number, headSha: string) => void;
-  onExecuteAnalysis: (analysisRunId: string) => void;
+  analyzingPrNumber: number | null;
+  onAnalyze: (prNumber: number) => void;
   pullRequests: GitHubPullRequest[];
 }) {
   if (pullRequests.length === 0) {
@@ -223,9 +124,8 @@ function PullRequestTable({
               </td>
               <td>
                 <PullRequestActions
-                  executingRunId={executingRunId}
-                  onCreateMockAnalysis={onCreateMockAnalysis}
-                  onExecuteAnalysis={onExecuteAnalysis}
+                  analyzing={analyzingPrNumber === pullRequest.number}
+                  onAnalyze={onAnalyze}
                   pullRequest={pullRequest}
                 />
               </td>
@@ -238,47 +138,28 @@ function PullRequestTable({
 }
 
 function PullRequestActions({
-  executingRunId,
-  onCreateMockAnalysis,
-  onExecuteAnalysis,
+  analyzing,
+  onAnalyze,
   pullRequest
 }: {
-  executingRunId: string | null;
-  onCreateMockAnalysis: (prNumber: number, headSha: string) => void;
-  onExecuteAnalysis: (analysisRunId: string) => void;
+  analyzing: boolean;
+  onAnalyze: (prNumber: number) => void;
   pullRequest: GitHubPullRequest;
 }) {
   const run = pullRequest.review_state.analysis_run;
-  const canExecute =
-    pullRequest.review_state.state === "current" && run?.status === "pending";
-
-  if (canExecute && run) {
+  if (!run || pullRequest.review_state.state === "outdated") {
     return (
       <button
         className="button small primary"
-        disabled={executingRunId === run.id}
-        onClick={() => onExecuteAnalysis(run.id)}
+        disabled={analyzing}
+        onClick={() => onAnalyze(pullRequest.number)}
         type="button"
       >
-        {executingRunId === run.id ? "Executing" : "Execute Analysis"}
+        {analyzing ? "Analyzing" : "Analyze"}
       </button>
     );
   }
-
-  return (
-    <button
-      className="button small secondary"
-      onClick={() =>
-        onCreateMockAnalysis(
-          pullRequest.number,
-          pullRequest.head_sha
-        )
-      }
-      type="button"
-    >
-      Create Mock Analysis
-    </button>
-  );
+  return <Link to={`/analysis-runs/${run.id}`}>View detail</Link>;
 }
 
 function ReviewStateCell({ pullRequest }: { pullRequest: GitHubPullRequest }) {

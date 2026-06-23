@@ -1,23 +1,44 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { getAnalysisRun } from "../api/client";
+import {
+  getAnalysisRun,
+  getQualityGateConfig,
+  publishAnalysisRunToGitHub
+} from "../api/client";
 import EmptyState from "../components/EmptyState";
 import ErrorMessage from "../components/ErrorMessage";
 import LoadingBlock from "../components/LoadingBlock";
 import StatusBadge from "../components/StatusBadge";
-import type { AnalysisRunDetail, PullRequestSnapshot } from "../types/api";
+import type {
+  AIReviewSnapshot,
+  AnalysisRunDetail,
+  GitHubPublicationResult,
+  PullRequestSnapshot,
+  QualityGateConfig
+} from "../types/api";
 
 export default function AnalysisDetailPage() {
   const { analysisRunId } = useParams();
   const [run, setRun] = useState<AnalysisRunDetail | null>(null);
+  const [qualityConfig, setQualityConfig] = useState<QualityGateConfig | null>(null);
+  const [publicationResult, setPublicationResult] =
+    useState<GitHubPublicationResult | null>(null);
+  const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [publishError, setPublishError] = useState<unknown>(null);
 
   useEffect(() => {
     if (!analysisRunId) {
       return;
     }
-    getAnalysisRun(analysisRunId).then(setRun).catch(setError);
+    getAnalysisRun(analysisRunId)
+      .then((analysisRun) => {
+        setRun(analysisRun);
+        return getQualityGateConfig(analysisRun.repository_id);
+      })
+      .then(setQualityConfig)
+      .catch(setError);
   }, [analysisRunId]);
 
   if (error) {
@@ -39,6 +60,24 @@ export default function AnalysisDetailPage() {
   const pullRequestContext = hasPullRequestSnapshot(run.pull_request_snapshot_json)
     ? run.pull_request_snapshot_json
     : null;
+  const canPublish = run.status === "completed" || run.status === "error";
+  const runId = run.id;
+  const publishingEnabled =
+    Boolean(qualityConfig?.comment_on_github) ||
+    Boolean(qualityConfig?.publish_github_status);
+
+  async function handlePublish() {
+    setPublishing(true);
+    setPublishError(null);
+    try {
+      const result = await publishAnalysisRunToGitHub(runId);
+      setPublicationResult(result);
+    } catch (caught) {
+      setPublishError(caught);
+    } finally {
+      setPublishing(false);
+    }
+  }
 
   return (
     <div className="page-stack">
@@ -47,9 +86,21 @@ export default function AnalysisDetailPage() {
           <p className="eyebrow">Analysis Run</p>
           <h1>PR #{run.pr_number}</h1>
         </div>
-        <Link className="button secondary" to={`/repositories/${run.repository_id}`}>
-          Repository
-        </Link>
+        <div className="header-actions">
+          {canPublish && (
+            <button
+              className="button primary"
+              disabled={!publishingEnabled || publishing}
+              onClick={handlePublish}
+              type="button"
+            >
+              {publishing ? "Publishing" : "Publish to GitHub"}
+            </button>
+          )}
+          <Link className="button secondary" to={`/repositories/${run.repository_id}`}>
+            Repository
+          </Link>
+        </div>
       </header>
 
       <section className="metrics-grid six">
@@ -114,6 +165,15 @@ export default function AnalysisDetailPage() {
           pass/fail quality decision.
         </div>
       )}
+      {canPublish && !publishingEnabled && qualityConfig && (
+        <div className="info-banner">
+          GitHub publication is disabled for this repository.
+        </div>
+      )}
+      {publishError ? <ErrorMessage error={publishError} /> : null}
+      {publicationResult && <PublicationResultPanel result={publicationResult} />}
+
+      <AIReviewPanel value={run.ai_review_json} score={run.score} />
 
       {pullRequestContext && (
         <PullRequestContextPanel
@@ -185,6 +245,162 @@ export default function AnalysisDetailPage() {
           />
         </div>
       </section>
+    </div>
+  );
+}
+
+function AIReviewPanel({
+  value,
+  score
+}: {
+  value: AIReviewSnapshot;
+  score: number | null;
+}) {
+  if (isGeneratedAIReview(value)) {
+    return (
+      <section className="panel ai-review-panel">
+        <div className="panel-header">
+          <div>
+            <h2>AI Review</h2>
+            <p className="panel-subtitle">{value.model}</p>
+          </div>
+          <div className="badge-row">
+            <StatusBadge value={value.status} />
+            <StatusBadge value={value.risk_level} />
+          </div>
+        </div>
+        <div className="summary-copy">
+          <p>{value.summary}</p>
+        </div>
+        <div className="metrics-grid four compact-metrics">
+          <div className="metric">
+            <span>AI Score</span>
+            <strong>{score ?? value.score}</strong>
+          </div>
+          <div className="metric">
+            <span>Risk</span>
+            <strong>
+              <StatusBadge value={value.risk_level} />
+            </strong>
+          </div>
+          <div className="metric">
+            <span>Blockers</span>
+            <strong>{value.blocking_reasons.length}</strong>
+          </div>
+          <div className="metric">
+            <span>Suggestions</span>
+            <strong>{value.suggestions.length}</strong>
+          </div>
+        </div>
+        <div className="ai-assessments">
+          <p>{value.coverage_assessment}</p>
+          <p>{value.security_assessment}</p>
+          <p>{value.technical_debt_assessment}</p>
+        </div>
+        {value.suggestions.length > 0 && (
+          <div className="note-list muted">
+            {value.suggestions.map((suggestion) => (
+              <p key={suggestion}>{suggestion}</p>
+            ))}
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  if (isSkippedAIReview(value)) {
+    return (
+      <section className="panel">
+        <div className="panel-header">
+          <h2>AI Review</h2>
+          <StatusBadge value={value.status} />
+        </div>
+        <div className="summary-copy">
+          <p>AI review was skipped because OpenAI is not configured.</p>
+        </div>
+      </section>
+    );
+  }
+
+  if (isErroredAIReview(value)) {
+    return (
+      <section className="panel">
+        <div className="panel-header">
+          <h2>AI Review</h2>
+          <StatusBadge value={value.status} />
+        </div>
+        <div className="summary-copy">
+          <p>{value.message}</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <h2>AI Review</h2>
+        <StatusBadge value="none" />
+      </div>
+      <EmptyState title="No AI review">
+        This run does not have an AI review snapshot.
+      </EmptyState>
+    </section>
+  );
+}
+
+function PublicationResultPanel({ result }: { result: GitHubPublicationResult }) {
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <h2>GitHub Publication</h2>
+        <StatusBadge value="published" />
+      </div>
+      <div className="summary-list">
+        <PublicationRow
+          label="Pull Request Comment"
+          published={result.comment.published}
+          skippedReason={result.comment.skipped_reason}
+          value={
+            result.comment.html_url ? (
+              <a href={result.comment.html_url} rel="noreferrer" target="_blank">
+                Comment
+              </a>
+            ) : null
+          }
+        />
+        <PublicationRow
+          label="Commit Status"
+          published={result.commit_status.published}
+          skippedReason={result.commit_status.skipped_reason}
+          value={
+            result.commit_status.state ? (
+              <StatusBadge value={result.commit_status.state} />
+            ) : null
+          }
+        />
+      </div>
+    </section>
+  );
+}
+
+function PublicationRow({
+  label,
+  published,
+  skippedReason,
+  value
+}: {
+  label: string;
+  published: boolean;
+  skippedReason: string | null;
+  value: ReactNode;
+}) {
+  return (
+    <div className="summary-row">
+      <span>{label}</span>
+      <strong>
+        {published ? value ?? "published" : skippedReason ?? "skipped"}
+      </strong>
     </div>
   );
 }
@@ -384,6 +600,27 @@ function hasPullRequestSnapshot(
   value: AnalysisRunDetail["pull_request_snapshot_json"]
 ): value is PullRequestSnapshot {
   return typeof value.number === "number" && typeof value.title === "string";
+}
+
+function isGeneratedAIReview(value: AIReviewSnapshot): value is Extract<
+  AIReviewSnapshot,
+  { status: "generated" }
+> {
+  return "status" in value && value.status === "generated";
+}
+
+function isSkippedAIReview(value: AIReviewSnapshot): value is Extract<
+  AIReviewSnapshot,
+  { status: "skipped" }
+> {
+  return "status" in value && value.status === "skipped";
+}
+
+function isErroredAIReview(value: AIReviewSnapshot): value is Extract<
+  AIReviewSnapshot,
+  { status: "error" }
+> {
+  return "status" in value && value.status === "error";
 }
 
 function stringArray(value: unknown) {
