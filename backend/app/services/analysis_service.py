@@ -235,6 +235,7 @@ def create_mock_analysis_run(
         coverage_result_json=scenario["coverage"],
         security_result_json=scenario["security"],
         technical_debt_result_json=scenario["technical_debt"],
+        ai_review_json={},
         pull_request_snapshot_json={},
         changed_files_snapshot_json=[],
         diff_snapshot=None,
@@ -287,8 +288,53 @@ def create_or_reuse_webhook_analysis_run(
         coverage_result_json={},
         security_result_json={},
         technical_debt_result_json={},
+        ai_review_json={},
         pull_request_snapshot_json=pull_request,
         changed_files_snapshot_json=changed_files,
+        diff_snapshot=context_model.diff_snapshot,
+        diff_truncated=context_model.diff_truncated,
+        final_report_markdown=None,
+        error_message=None,
+        started_at=None,
+        finished_at=None,
+    )
+    return _commit_new_run_or_reuse(db, run)
+
+
+def create_or_reuse_manual_analysis_run(
+    db: Session,
+    repository_id: UUID,
+    context: PullRequestContextRead | dict,
+) -> AnalysisRun:
+    context_model = _coerce_context(context)
+    existing = get_analysis_run_by_pr_head(
+        db,
+        repository_id,
+        context_model.pull_request.number,
+        context_model.pull_request.head_sha,
+    )
+    if existing is not None:
+        return get_analysis_run(db, existing.id)
+
+    run = AnalysisRun(
+        repository_id=repository_id,
+        pr_number=context_model.pull_request.number,
+        head_sha=context_model.pull_request.head_sha,
+        status=AnalysisRunStatus.PENDING,
+        decision=None,
+        trigger_source=AnalysisTriggerSource.MANUAL,
+        score=None,
+        coverage_result_json={},
+        security_result_json={},
+        technical_debt_result_json={},
+        ai_review_json={},
+        pull_request_snapshot_json=context_model.pull_request.model_dump(
+            mode="json"
+        ),
+        changed_files_snapshot_json=[
+            changed_file.model_dump(mode="json")
+            for changed_file in context_model.changed_files
+        ],
         diff_snapshot=context_model.diff_snapshot,
         diff_truncated=context_model.diff_truncated,
         final_report_markdown=None,
@@ -322,6 +368,7 @@ def create_or_reuse_error_webhook_analysis_run(
         coverage_result_json={},
         security_result_json={},
         technical_debt_result_json={},
+        ai_review_json={},
         pull_request_snapshot_json=pull_request_snapshot,
         changed_files_snapshot_json=[],
         diff_snapshot=None,
