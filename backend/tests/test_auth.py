@@ -6,6 +6,7 @@ from app.models.repository import Repository
 from app.models.user import User
 from app.models.user_repository_access import UserRepositoryAccess
 from app.models.user_session import UserSession
+from app.services import session_service
 
 
 def test_user_session_and_repository_access_models_persist(reset_database, db_session):
@@ -77,3 +78,45 @@ def test_user_session_and_repository_access_models_persist(reset_database, db_se
     assert persisted_installation_repository.full_name == "octo-org/quality-api"
     assert db_session.query(UserSession).count() == 1
     assert db_session.query(UserRepositoryAccess).one().is_admin is True
+
+
+def test_create_session_returns_raw_cookie_once(reset_database, db_session):
+    user = User(github_user_id=1, github_login="octocat")
+    db_session.add(user)
+    db_session.commit()
+
+    created = session_service.create_session(
+        db_session, user, ttl=timedelta(hours=1)
+    )
+
+    assert created.cookie_value
+    assert created.csrf_token
+    assert created.session.session_token_hash != created.cookie_value
+    assert (
+        session_service.get_user_for_session(db_session, created.cookie_value).id
+        == user.id
+    )
+
+
+def test_revoked_session_is_rejected(reset_database, db_session):
+    user = User(github_user_id=1, github_login="octocat")
+    db_session.add(user)
+    db_session.commit()
+    created = session_service.create_session(
+        db_session, user, ttl=timedelta(hours=1)
+    )
+
+    session_service.revoke_session(db_session, created.cookie_value)
+
+    assert session_service.get_user_for_session(db_session, created.cookie_value) is None
+
+
+def test_expired_session_is_rejected(reset_database, db_session):
+    user = User(github_user_id=1, github_login="octocat")
+    db_session.add(user)
+    db_session.commit()
+    created = session_service.create_session(
+        db_session, user, ttl=timedelta(seconds=-1)
+    )
+
+    assert session_service.get_user_for_session(db_session, created.cookie_value) is None
