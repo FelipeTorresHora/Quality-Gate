@@ -1,0 +1,58 @@
+.auth-screen {
+  align-items: center;
+  background: #080807;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.auth-panel {
+  display: grid;
+  gap: 20px;
+  max-width: 420px;
+  width: 100%;
+}
+
+.auth-panel .brand-mark {
+  margin-bottom: 24px;
+}
+
+.auth-panel h1 {
+  color: #ffffff;
+  font-size: 34px;
+  line-height: 1.15;
+  margin: 0;
+}
+
+.auth-panel .button {
+  justify-content: center;
+  width: 100%;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+}
+
+.user-chip {
+  align-items: center;
+  border-top: 1px solid #26241f;
+  color: #d8d3c6;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 18px;
+}
+
+.user-chip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-chip button {
+  flex: 0 0 auto;
+}

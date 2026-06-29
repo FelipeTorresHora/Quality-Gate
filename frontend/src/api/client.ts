@@ -3,7 +3,10 @@ import type {
   AnalysisRunSummary,
   ApiErrorDetail,
   CoverageExecutionConfig,
+  CurrentUser,
   DashboardSummary,
+  GitHubInstallation,
+  GitHubPublicationResult,
   GitHubPullRequest,
   MockScenario,
   PullRequestContext,
@@ -28,6 +31,7 @@ export class ApiError extends Error {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(options.headers ?? {})
@@ -46,6 +50,22 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export function getHealth() {
   return request<{ status: string }>("/health");
+}
+
+export function getGitHubLoginUrl() {
+  return `${API_BASE_URL}/api/auth/github/login`;
+}
+
+export function getCurrentUser() {
+  return request<CurrentUser>("/api/auth/me");
+}
+
+export function logout() {
+  return request<{ status: string }>("/api/auth/logout", { method: "POST" });
+}
+
+export function listGitHubInstallations() {
+  return request<GitHubInstallation[]>("/api/github/installations");
 }
 
 export function getDashboardSummary() {
@@ -88,6 +108,13 @@ export function listPullRequests(repositoryId: string) {
 export function getPullRequestContext(repositoryId: string, prNumber: number) {
   return request<PullRequestContext>(
     `/api/repositories/${repositoryId}/pull-requests/${prNumber}/context`
+  );
+}
+
+export function analyzePullRequest(repositoryId: string, prNumber: number) {
+  return request<AnalysisRunDetail>(
+    `/api/repositories/${repositoryId}/pull-requests/${prNumber}/analyze`,
+    { method: "POST" }
   );
 }
 
@@ -156,4 +183,13 @@ export function executeAnalysisRun(analysisRunId: string) {
   return request<AnalysisRunDetail>(`/api/analysis-runs/${analysisRunId}/execute`, {
     method: "POST"
   });
+}
+
+export function publishAnalysisRunToGitHub(analysisRunId: string) {
+  return request<GitHubPublicationResult>(
+    `/api/analysis-runs/${analysisRunId}/publish-github`,
+    {
+      method: "POST"
+    }
+  );
 }
