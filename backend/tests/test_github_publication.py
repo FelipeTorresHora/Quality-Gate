@@ -58,6 +58,7 @@ def publication_repository(reset_database, db_session):
     return {
         "id": str(repository.id),
         "cookie": created.cookie_value,
+        "csrf_token": created.csrf_token,
     }
 
 
@@ -97,7 +98,11 @@ def _create_run(repository, *, status=AnalysisRunStatus.COMPLETED, decision=Gate
 def _set_publish_flags(client, repository, *, comment, status):
     response = client.put(
         f"/api/repositories/{repository['id']}/quality-gate-config",
-        cookies={"qg_session": repository["cookie"]},
+        cookies={
+            "qg_session": repository["cookie"],
+            "qg_csrf": repository["csrf_token"],
+        },
+        headers={"X-CSRF-Token": repository["csrf_token"]},
         json={
             "comment_on_github": comment,
             "publish_github_status": status,
@@ -115,7 +120,11 @@ def test_publish_rejects_pending_run(client, publication_repository):
 
     response = client.post(
         f"/api/analysis-runs/{run_id}/publish-github",
-        cookies={"qg_session": publication_repository["cookie"]},
+        cookies={
+            "qg_session": publication_repository["cookie"],
+            "qg_csrf": publication_repository["csrf_token"],
+        },
+        headers={"X-CSRF-Token": publication_repository["csrf_token"]},
     )
 
     assert response.status_code == 409
@@ -133,7 +142,11 @@ def test_publish_skips_disabled_channels(client, publication_repository):
 
     response = client.post(
         f"/api/analysis-runs/{run_id}/publish-github",
-        cookies={"qg_session": publication_repository["cookie"]},
+        cookies={
+            "qg_session": publication_repository["cookie"],
+            "qg_csrf": publication_repository["csrf_token"],
+        },
+        headers={"X-CSRF-Token": publication_repository["csrf_token"]},
     )
 
     assert response.status_code == 200
@@ -183,7 +196,11 @@ def test_publish_creates_marked_pull_request_comment(
 
     response = client.post(
         f"/api/analysis-runs/{run_id}/publish-github",
-        cookies={"qg_session": publication_repository["cookie"]},
+        cookies={
+            "qg_session": publication_repository["cookie"],
+            "qg_csrf": publication_repository["csrf_token"],
+        },
+        headers={"X-CSRF-Token": publication_repository["csrf_token"]},
     )
 
     assert response.status_code == 200
@@ -230,7 +247,11 @@ def test_publish_updates_existing_marked_pull_request_comment(
 
     response = client.post(
         f"/api/analysis-runs/{run_id}/publish-github",
-        cookies={"qg_session": publication_repository["cookie"]},
+        cookies={
+            "qg_session": publication_repository["cookie"],
+            "qg_csrf": publication_repository["csrf_token"],
+        },
+        headers={"X-CSRF-Token": publication_repository["csrf_token"]},
     )
 
     assert response.status_code == 200
@@ -275,7 +296,11 @@ def test_publish_commit_status_maps_decision(
 
     response = client.post(
         f"/api/analysis-runs/{run_id}/publish-github",
-        cookies={"qg_session": publication_repository["cookie"]},
+        cookies={
+            "qg_session": publication_repository["cookie"],
+            "qg_csrf": publication_repository["csrf_token"],
+        },
+        headers={"X-CSRF-Token": publication_repository["csrf_token"]},
     )
 
     assert response.status_code == 200
@@ -307,7 +332,11 @@ def test_publish_installation_token_failure_returns_stable_error(
 
     response = client.post(
         f"/api/analysis-runs/{run_id}/publish-github",
-        cookies={"qg_session": publication_repository["cookie"]},
+        cookies={
+            "qg_session": publication_repository["cookie"],
+            "qg_csrf": publication_repository["csrf_token"],
+        },
+        headers={"X-CSRF-Token": publication_repository["csrf_token"]},
     )
 
     assert response.status_code == 503

@@ -12,7 +12,7 @@ technical debt, and an optional AI review.
 - Live Pull Request queue with manual Analyze actions.
 - Signed Pull Request webhooks with automatic background execution.
 - Configurable coverage, security, technical debt, and GitHub publication
-  policies.
+  policies, including per-repository gate enablement.
 - PostgreSQL persistence managed by SQLAlchemy and Alembic.
 - React dashboard and Docker Compose development environment.
 
@@ -40,6 +40,12 @@ Open:
 - Backend health: http://localhost:8000/health
 
 The backend runs `alembic upgrade head` before FastAPI starts.
+
+Docker Compose publishes PostgreSQL on host port `55432` by default to avoid
+colliding with a local PostgreSQL on `5432`. Override it with
+`POSTGRES_HOST_PORT` if needed. The backend container receives
+`BACKEND_DATABASE_URL` as its internal `DATABASE_URL`, so host-side
+`DATABASE_URL` values do not accidentally point the container at `localhost`.
 
 ## GitHub App Setup
 
@@ -75,6 +81,10 @@ GITHUB_APP_PRIVATE_KEY_PATH=
 GITHUB_APP_SLUG=
 GITHUB_WEBHOOK_SECRET=
 ```
+
+Do not commit real values copied into `.env`. If a client secret, webhook
+secret, private key, token, or OpenAI key is copied into a tracked file, issue,
+log, or Pull Request, rotate it in the provider dashboard before continuing.
 
 For local webhook delivery, expose port `8000` with a tunnel:
 
@@ -141,6 +151,12 @@ Security tooling may include Bandit, Semgrep, detect-secrets, and dependency
 audit tools. Repository commands run in the backend service environment, not in
 a dedicated per-run container. Only analyze repositories you trust.
 
+The provided backend Docker image installs `git`, Python security scanners,
+Node/npm, and Go so the default Python, JavaScript/TypeScript, and Go coverage
+commands have a usable local runner. Repositories with extra native packages,
+alternate package managers, or custom language runtimes should extend the
+backend image or adjust the per-repository Coverage Execution Config.
+
 ## AI Review
 
 Set `OPENAI_API_KEY` to enable the optional structured AI review:
@@ -182,9 +198,15 @@ skipped. LangSmith tracing is optional.
 Backend:
 
 ```powershell
+docker compose up -d postgres
 cd backend
 .\.venv\Scripts\python.exe -m pytest tests
 ```
+
+The test suite defaults to
+`postgresql+psycopg://pr_quality:pr_quality@localhost:55432/pr_quality_test`.
+Set `TEST_DATABASE_URL` explicitly only when you want to use a different test
+database.
 
 Frontend:
 

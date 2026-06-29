@@ -29,13 +29,20 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const method = (options.method ?? "GET").toUpperCase();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options.headers as Record<string, string> | undefined)
+  };
+  const csrfToken = getCookieValue("qg_csrf");
+  if (csrfToken && method !== "GET" && method !== "HEAD") {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers ?? {})
-    }
+    headers
   });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
@@ -46,6 +53,18 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new ApiError(response.status, detail);
   }
   return response.json() as Promise<T>;
+}
+
+function getCookieValue(name: string) {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const prefix = `${name}=`;
+  const match = document.cookie
+    .split(";")
+    .map((item) => item.trim())
+    .find((item) => item.startsWith(prefix));
+  return match ? decodeURIComponent(match.slice(prefix.length)) : null;
 }
 
 export function getHealth() {

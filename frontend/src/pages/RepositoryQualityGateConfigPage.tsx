@@ -61,10 +61,13 @@ export default function RepositoryQualityGateConfigPage() {
         min_total_coverage: config.min_total_coverage,
         max_coverage_drop: config.max_coverage_drop,
         min_changed_files_coverage: config.min_changed_files_coverage,
+        coverage_enabled: config.coverage_enabled,
         security_fail_on: config.security_fail_on,
+        security_enabled: config.security_enabled,
         max_function_lines: config.max_function_lines,
         max_complexity: config.max_complexity,
         fail_on_new_todo: config.fail_on_new_todo,
+        technical_debt_enabled: config.technical_debt_enabled,
         comment_on_github: config.comment_on_github,
         publish_github_status: config.publish_github_status
       });
@@ -234,6 +237,16 @@ export default function RepositoryQualityGateConfigPage() {
                 }
               />
             </label>
+            <label className="checkbox-line">
+              <input
+                checked={config.coverage_enabled}
+                type="checkbox"
+                onChange={(event) =>
+                  setConfig({ ...config, coverage_enabled: event.target.checked })
+                }
+              />
+              Enable coverage gate
+            </label>
           </div>
         </section>
 
@@ -260,6 +273,16 @@ export default function RepositoryQualityGateConfigPage() {
                   })
                 }
               />
+            </label>
+            <label className="checkbox-line">
+              <input
+                checked={config.security_enabled}
+                type="checkbox"
+                onChange={(event) =>
+                  setConfig({ ...config, security_enabled: event.target.checked })
+                }
+              />
+              Enable security gate
             </label>
           </div>
         </section>
@@ -306,6 +329,19 @@ export default function RepositoryQualityGateConfigPage() {
                 }
               />
               Fail on new TODO
+            </label>
+            <label className="checkbox-line">
+              <input
+                checked={config.technical_debt_enabled}
+                type="checkbox"
+                onChange={(event) =>
+                  setConfig({
+                    ...config,
+                    technical_debt_enabled: event.target.checked
+                  })
+                }
+              />
+              Enable technical debt gate
             </label>
           </div>
         </section>

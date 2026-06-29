@@ -18,6 +18,7 @@ def test_synced_repository_has_default_coverage_execution_config(
 def test_update_coverage_execution_config(client, repository):
     response = client.put(
         f"/api/repositories/{repository['id']}/coverage-execution-config",
+        headers={"X-CSRF-Token": repository["csrf_token"]},
         json={
             "language": "go",
             "install_command": "go mod download",
@@ -41,6 +42,7 @@ def test_update_coverage_execution_config_allows_blank_install_command(
 ):
     response = client.put(
         f"/api/repositories/{repository['id']}/coverage-execution-config",
+        headers={"X-CSRF-Token": repository["csrf_token"]},
         json={
             "language": "javascript",
             "install_command": "",
@@ -59,6 +61,7 @@ def test_update_coverage_execution_config_rejects_empty_test_command(
 ):
     response = client.put(
         f"/api/repositories/{repository['id']}/coverage-execution-config",
+        headers={"X-CSRF-Token": repository["csrf_token"]},
         json={"test_command": "   "},
     )
 
@@ -70,6 +73,7 @@ def test_update_coverage_execution_config_rejects_wrong_report_format(
 ):
     response = client.put(
         f"/api/repositories/{repository['id']}/coverage-execution-config",
+        headers={"X-CSRF-Token": repository["csrf_token"]},
         json={
             "language": "go",
             "report_format": "lcov",

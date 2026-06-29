@@ -21,7 +21,7 @@ def test_manual_analyze_creates_and_executes_real_run(
     db_session,
     create_user_repo_access,
 ):
-    _user, repository, cookie = create_user_repo_access(is_admin=False)
+    _user, repository, cookie, csrf_token = create_user_repo_access(is_admin=False)
 
     monkeypatch.setattr(
         "app.services.github_service.get_repository_pull_request_context",
@@ -55,7 +55,8 @@ def test_manual_analyze_creates_and_executes_real_run(
 
     response = client.post(
         f"/api/repositories/{repository.id}/pull-requests/1/analyze",
-        cookies={"qg_session": cookie},
+        cookies={"qg_session": cookie, "qg_csrf": csrf_token},
+        headers={"X-CSRF-Token": csrf_token},
     )
 
     assert response.status_code == 200

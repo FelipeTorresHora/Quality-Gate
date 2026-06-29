@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-PR Quality Gate Dashboard — evaluates whether a Pull Request passes a quality gate across coverage, security, and technical debt. Currently at the "MVP tecnico de fundacao" + "GitHub Read-only Basico" stage (see `CONTEXT.md` for exact glossary/terminology used across code, commits, and PRs — use these terms, not synonyms like "execution", "check", or "scanner config").
+PR Quality Gate Dashboard — evaluates whether a GitHub Pull Request passes a quality gate across coverage, security, technical debt, and optional AI review. The product path is now GitHub App/OAuth only: users sign in with GitHub, synchronize repositories from GitHub App installations, analyze live Pull Requests manually or from Pull Request Triggers, and may publish GitHub comments/statuses.
 
-Not implemented yet: real PR analysis, LangChain execution, coverage/security scanners, webhooks, GitHub comments/status checks, Redis, workers, GitHub App, billing, auth. Analysis runs today are only created via mock scenarios.
+Mock Analysis Runs and manual repository creation are not supported. Analysis Runs are created only from GitHub App Pull Request events or from Manual Pull Request Analysis on a selected live Pull Request. See `CONTEXT.md` for exact glossary/terminology used across code, commits, and PRs.
 
 ## Commands
 
@@ -30,7 +30,7 @@ alembic upgrade head                # apply migrations
 alembic revision --autogenerate -m "message"  # new migration
 ```
 
-Tests require a real Postgres reachable at `DATABASE_URL` (default `postgresql+psycopg://pr_quality:pr_quality@localhost:5432/pr_quality_test`); `reset_database` fixture in `tests/conftest.py` drops/creates all tables per test and `pytest.skip`s if Postgres is unreachable. `docker-compose.yml` seeds a test DB via `docker/postgres/init-test-db.sql`.
+Tests require a real Postgres reachable at `TEST_DATABASE_URL` or the default `postgresql+psycopg://pr_quality:pr_quality@localhost:55432/pr_quality_test`; `reset_database` fixture in `tests/conftest.py` drops/creates all tables per test and `pytest.skip`s if Postgres is unreachable. `docker-compose.yml` publishes Postgres on host port `55432` by default and seeds a test DB via `docker/postgres/init-test-db.sql`.
 
 Frontend (from `frontend/`):
 
@@ -46,17 +46,18 @@ npm run preview
 
 - `main.py` wires routers and registers a single exception handler for `AppError`.
 - `core/errors.py` — `AppError(status_code, code, message)` is the only error type services raise; the global handler turns it into `{"detail": {"code", "message"}}`. Don't raise bare `HTTPException` in services — raise `AppError` and let the handler format it.
-- `core/config.py` — `Settings` (pydantic-settings) loaded once via `get_settings()` (`lru_cache`). All env vars (DB, GitHub token, OpenAI/LangSmith placeholders for future analyzers) live here.
+- `core/config.py` — `Settings` (pydantic-settings) loaded once via `get_settings()` (`lru_cache`). By default it reads `.env`; tests set `PR_QUALITY_ENV_FILE=` to avoid developer env leakage.
 - `db/base.py` — `Base` (DeclarativeBase); imports every model module at the bottom so Alembic's autogenerate sees all tables. Add new models here.
 - `db/session.py` — engine/`SessionLocal`; `get_db()` is the FastAPI dependency.
 - `models/` — one file per table, using `UUIDPrimaryKeyMixin` (UUID PK, `mixins.py`) and `TimestampMixin` (`created_at`/`updated_at`) almost everywhere. Enums (`models/enums.py`) are persisted as native Postgres enums via a shared `enum_values()` helper — keep that pattern when adding new enum columns. JSONB columns (`quality_gate_config.security_fail_on`, `analysis_run.*_result_json`) hold flexible/snapshot data by design (see `docs/adr/0001`, `0002`).
 - `services/` — all business logic and the only layer allowed to raise `AppError` or touch the DB session directly; routes are thin pass-throughs. `repository_service` is the dependency other services call into (e.g. `quality_gate_service`/`analysis_service`/`github_service` all call `get_repository()` first to 404 consistently).
 - `api/routes_*.py` — one router per resource, included in `main.py`. No business logic here.
 - `schemas/` — Pydantic request/response models, decoupled from ORM models.
-- `services/analysis_service.py` — `SCENARIOS` dict holds the fixed mock analysis fixtures (`passing`, `coverage_fail`, `security_fail`, `technical_debt_fail`, `mixed_fail`). This is the only way analysis runs are created today; there is no real analyzer.
-- `services/github_service.py` — `GitHubClient` wraps GitHub REST with a Bearer token from settings; read-only (repo lookup, list open PRs). Maps 401/403+ratelimit→429, 403→`github_token_forbidden`, 404→`github_repository_not_found`. No OAuth, no GitHub App, no writes back to GitHub yet.
+- `services/analysis_service.py` — creates/reuses Analysis Runs from captured live Pull Request context. Keep one run per repository, PR number, and head SHA.
+- `services/analysis_execution_service.py` — executes Coverage, Security, and Technical Debt gates sequentially, records partial snapshots/findings on failure, generates optional AI review, and builds the final report.
+- `services/github_service.py` — `GitHubClient` wraps GitHub REST using GitHub App installation tokens for repository access, Pull Request context, comments, and commit statuses. Maps GitHub API failures into stable `AppError` codes.
 
-Domain model relationships: `Repository` 1:1 `QualityGateConfig` (auto-created on repo creation, cascade delete), `Repository` 1:N `AnalysisRun`, `AnalysisRun` 1:N `AnalysisFinding`. `User`/`GitHubConnection` exist as scaffolding for future auth, intentionally uncoupled from `Repository` ownership (`docs/adr/0005`, `0006`).
+Domain model relationships: `Repository` 1:1 `QualityGateConfig` and 1:1 `CoverageExecutionConfig`, `Repository` 1:N `AnalysisRun`, `AnalysisRun` 1:N `AnalysisFinding`. `User`, `GitHubConnection`, `GitHubAppInstallation`, `InstallationRepository`, and `UserRepositoryAccess` model GitHub OAuth login and installation-derived authorization.
 
 Architectural decisions are recorded in `docs/adr/` — check there before changing JSONB usage, UUID PKs, enum representation, or the run-status/gate-decision split (`AnalysisRunStatus` is operational state; `GateDecision` is the pass/fail outcome — never conflate them).
 

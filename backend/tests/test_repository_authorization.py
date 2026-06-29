@@ -9,7 +9,7 @@ def test_repository_list_is_filtered_to_current_user(
     reset_database,
     create_user_repo_access,
 ):
-    _user, repository, cookie = create_user_repo_access(is_admin=False)
+    _user, repository, cookie, _csrf_token = create_user_repo_access(is_admin=False)
 
     response = client.get(
         "/api/repositories",
@@ -25,11 +25,12 @@ def test_non_admin_cannot_update_quality_gate_config(
     reset_database,
     create_user_repo_access,
 ):
-    _user, repository, cookie = create_user_repo_access(is_admin=False)
+    _user, repository, cookie, csrf_token = create_user_repo_access(is_admin=False)
 
     response = client.put(
         f"/api/repositories/{repository.id}/quality-gate-config",
-        cookies={"qg_session": cookie},
+        cookies={"qg_session": cookie, "qg_csrf": csrf_token},
+        headers={"X-CSRF-Token": csrf_token},
         json={"min_total_coverage": 90},
     )
 
