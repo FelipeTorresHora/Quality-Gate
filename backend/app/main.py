@@ -2,8 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
-    routes_coverage_execution_config,
     routes_analysis,
+    routes_auth,
+    routes_coverage_execution_config,
     routes_dashboard,
     routes_github_webhooks,
     routes_health,
@@ -27,6 +28,7 @@ app.add_middleware(
 )
 
 app.include_router(routes_health.router)
+app.include_router(routes_auth.router)
 app.include_router(routes_dashboard.router)
 app.include_router(routes_repositories.router)
 app.include_router(routes_quality_gate.router)

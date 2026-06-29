@@ -6,7 +6,7 @@ from app.models.repository import Repository
 from app.models.user import User
 from app.models.user_repository_access import UserRepositoryAccess
 from app.models.user_session import UserSession
-from app.services import session_service
+from app.services import session_service, token_crypto_service
 
 
 def test_user_session_and_repository_access_models_persist(reset_database, db_session):
@@ -120,3 +120,40 @@ def test_expired_session_is_rejected(reset_database, db_session):
     )
 
     assert session_service.get_user_for_session(db_session, created.cookie_value) is None
+
+
+def test_me_requires_authentication(client):
+    response = client.get("/api/auth/me")
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "authentication_required"
+
+
+def test_login_redirects_to_github(monkeypatch, client):
+    monkeypatch.setenv("GITHUB_APP_CLIENT_ID", "client-id")
+    monkeypatch.setenv(
+        "AUTH_CALLBACK_URL",
+        "http://localhost:8000/api/auth/github/callback",
+    )
+    from app.services import github_oauth_service
+
+    github_oauth_service.get_settings.cache_clear()
+
+    response = client.get("/api/auth/github/login", follow_redirects=False)
+
+    assert response.status_code in {302, 307}
+    assert "github.com/login/oauth/authorize" in response.headers["location"]
+    assert "client_id=client-id" in response.headers["location"]
+    github_oauth_service.get_settings.cache_clear()
+
+
+def test_token_crypto_round_trip(monkeypatch):
+    key = token_crypto_service.generate_key()
+    monkeypatch.setenv("TOKEN_ENCRYPTION_KEY", key)
+    token_crypto_service.get_settings.cache_clear()
+
+    encrypted = token_crypto_service.encrypt_token("secret-token")
+
+    assert encrypted != "secret-token"
+    assert token_crypto_service.decrypt_token(encrypted) == "secret-token"
+    token_crypto_service.get_settings.cache_clear()
