@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -31,7 +32,7 @@ class CommandResult:
 
     def to_snapshot(self) -> dict:
         return {
-            "command": self.command,
+            "command": redacted_command(self.command),
             "exit_code": self.exit_code,
             "stdout": self.stdout[-4000:],
             "stderr": self.stderr[-4000:],
@@ -95,8 +96,22 @@ class RunnerError(Exception):
         self.result = result
 
 
-def repository_clone_url(owner: str, name: str) -> str:
+def repository_clone_url(
+    owner: str,
+    name: str,
+    token: str | None = None,
+) -> str:
+    if token:
+        return f"https://x-access-token:{token}@github.com/{owner}/{name}.git"
     return f"https://github.com/{owner}/{name}.git"
+
+
+def redacted_command(command: str) -> str:
+    return re.sub(
+        r"x-access-token:[^@]+@",
+        "x-access-token:***@",
+        command,
+    )
 
 
 def run_command(
