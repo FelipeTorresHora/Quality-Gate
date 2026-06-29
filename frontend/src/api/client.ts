@@ -6,9 +6,9 @@ import type {
   CurrentUser,
   DashboardSummary,
   GitHubInstallation,
+  GitHubInstallUrl,
   GitHubPublicationResult,
   GitHubPullRequest,
-  MockScenario,
   PullRequestContext,
   QualityGateConfig,
   Repository
@@ -68,31 +68,16 @@ export function listGitHubInstallations() {
   return request<GitHubInstallation[]>("/api/github/installations");
 }
 
+export function getGitHubInstallUrl() {
+  return request<GitHubInstallUrl>("/api/github/installations/install-url");
+}
+
 export function getDashboardSummary() {
   return request<DashboardSummary>("/api/dashboard/summary");
 }
 
 export function listRepositories() {
   return request<Repository[]>("/api/repositories");
-}
-
-export function createRepository(payload: {
-  owner: string;
-  name: string;
-  full_name?: string;
-  default_branch: string;
-}) {
-  return request<Repository>("/api/repositories", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
-}
-
-export function createGitHubRepository(payload: { owner: string; name: string }) {
-  return request<Repository>("/api/repositories/github", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
 }
 
 export function getRepository(repositoryId: string) {
@@ -159,19 +144,6 @@ export function updateQualityGateConfig(
 export function listAnalysisRuns(repositoryId: string) {
   return request<AnalysisRunSummary[]>(
     `/api/repositories/${repositoryId}/analysis-runs`
-  );
-}
-
-export function createMockAnalysisRun(
-  repositoryId: string,
-  payload: { scenario: MockScenario; pr_number: number; head_sha: string }
-) {
-  return request<AnalysisRunDetail>(
-    `/api/repositories/${repositoryId}/analysis-runs/mock`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }
   );
 }
 

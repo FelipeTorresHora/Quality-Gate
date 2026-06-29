@@ -1,149 +1,112 @@
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
-  createGitHubRepository,
-  createRepository,
+  getGitHubInstallUrl,
+  listGitHubInstallations,
   listRepositories
 } from "../api/client";
+import EmptyState from "../components/EmptyState";
 import ErrorMessage from "../components/ErrorMessage";
-import type { Repository } from "../types/api";
+import LoadingBlock from "../components/LoadingBlock";
+import type { GitHubInstallation, Repository } from "../types/api";
 
 export default function RepositoriesPage() {
   const [repositories, setRepositories] = useState<Repository[]>([]);
-  const [owner, setOwner] = useState("");
-  const [name, setName] = useState("");
-  const [defaultBranch, setDefaultBranch] = useState("main");
-  const [mode, setMode] = useState<"manual" | "github">("manual");
+  const [installations, setInstallations] = useState<GitHubInstallation[]>([]);
+  const [installUrl, setInstallUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
 
-  function refresh() {
-    listRepositories().then(setRepositories).catch(setError);
-  }
-
-  useEffect(refresh, []);
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    setError(null);
-    try {
-      if (mode === "github") {
-        await createGitHubRepository({ owner, name });
-      } else {
-        await createRepository({
-          owner,
-          name,
-          full_name: `${owner}/${name}`,
-          default_branch: defaultBranch
-        });
-      }
-      setOwner("");
-      setName("");
-      setDefaultBranch("main");
-      refresh();
-    } catch (caught) {
-      setError(caught);
-    }
-  }
+  useEffect(() => {
+    Promise.all([
+      listRepositories(),
+      listGitHubInstallations(),
+      getGitHubInstallUrl()
+    ])
+      .then(([repositoryItems, installationItems, installUrlResult]) => {
+        setRepositories(repositoryItems);
+        setInstallations(installationItems);
+        setInstallUrl(installUrlResult.url);
+      })
+      .catch(setError)
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
     <div className="page-stack">
       <header className="page-header">
         <div>
           <p className="eyebrow">Repositories</p>
-          <h1>Repository Registry</h1>
+          <h1>GitHub Repositories</h1>
         </div>
+        {installUrl && (
+          <a className="button primary" href={installUrl}>
+            Manage GitHub App
+          </a>
+        )}
       </header>
 
       <ErrorMessage error={error} />
 
-      <section className="panel">
-        <div className="panel-header">
-          <h2>Create Repository</h2>
-          <div className="segmented">
-            <button
-              className={mode === "manual" ? "active" : ""}
-              onClick={() => setMode("manual")}
-              type="button"
-            >
-              Manual
-            </button>
-            <button
-              className={mode === "github" ? "active" : ""}
-              onClick={() => setMode("github")}
-              type="button"
-            >
-              GitHub
-            </button>
+      {loading ? (
+        <LoadingBlock label="Loading repositories" />
+      ) : repositories.length === 0 ? (
+        <EmptyState
+          action={
+            installUrl ? (
+              <a className="button primary" href={installUrl}>
+                Install GitHub App
+              </a>
+            ) : null
+          }
+          title={
+            installations.length === 0
+              ? "No GitHub App installations"
+              : "No accessible repositories"
+          }
+        >
+          {installations.length === 0
+            ? "Install the GitHub App to choose repositories for analysis."
+            : "Update the GitHub App installation to grant repository access."}
+        </EmptyState>
+      ) : (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Accessible Repositories</h2>
+              <p className="panel-subtitle">
+                {installations.length} active account installation
+                {installations.length === 1 ? "" : "s"}
+              </p>
+            </div>
           </div>
-        </div>
-        <form className="form-grid" onSubmit={handleSubmit}>
-          <label>
-            Owner
-            <input
-              value={owner}
-              onChange={(event) => setOwner(event.target.value)}
-              required
-            />
-          </label>
-          <label>
-            Name
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-            />
-          </label>
-          {mode === "manual" && (
-            <label>
-              Default branch
-              <input
-                value={defaultBranch}
-                onChange={(event) => setDefaultBranch(event.target.value)}
-                required
-              />
-            </label>
-          )}
-          <button className="button primary" type="submit">
-            Create
-          </button>
-        </form>
-      </section>
-
-      <section className="panel">
-        <div className="panel-header">
-          <h2>Registered Repositories</h2>
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Repository</th>
-                <th>Default branch</th>
-                <th>GitHub ID</th>
-              </tr>
-            </thead>
-            <tbody>
-              {repositories.map((repository) => (
-                <tr key={repository.id}>
-                  <td>
-                    <Link to={`/repositories/${repository.id}`}>
-                      {repository.full_name}
-                    </Link>
-                  </td>
-                  <td>{repository.default_branch}</td>
-                  <td>{repository.github_repo_id ?? "manual"}</td>
-                </tr>
-              ))}
-              {repositories.length === 0 && (
+          <div className="table-wrap">
+            <table>
+              <thead>
                 <tr>
-                  <td colSpan={3}>No repositories registered.</td>
+                  <th>Repository</th>
+                  <th>Default branch</th>
+                  <th>GitHub ID</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              </thead>
+              <tbody>
+                {repositories.map((repository) => (
+                  <tr key={repository.id}>
+                    <td>
+                      <Link to={`/repositories/${repository.id}`}>
+                        {repository.full_name}
+                      </Link>
+                    </td>
+                    <td>{repository.default_branch}</td>
+                    <td>{repository.github_repo_id}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

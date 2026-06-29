@@ -14,6 +14,10 @@ export type GitHubInstallation = {
   active: boolean;
 };
 
+export type GitHubInstallUrl = {
+  url: string;
+};
+
 export type Repository = {
   id: string;
   github_repo_id: number | null;
@@ -54,7 +58,7 @@ export type AnalysisFinding = {
   created_at: string;
 };
 
-export type AnalysisTriggerSource = "mock" | "manual" | "github_webhook";
+export type AnalysisTriggerSource = "manual" | "github_webhook";
 
 export type PullRequestSnapshot = {
   number: number;
@@ -225,13 +229,6 @@ export type GitHubPullRequest = {
   updated_at: string;
   review_state: PullRequestReviewState;
 };
-
-export type MockScenario =
-  | "passing"
-  | "coverage_fail"
-  | "security_fail"
-  | "technical_debt_fail"
-  | "mixed_fail";
 
 export type ApiErrorDetail = {
   code: string;

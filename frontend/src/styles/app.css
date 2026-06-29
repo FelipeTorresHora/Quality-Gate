@@ -108,6 +108,14 @@ select {
   justify-content: space-between;
 }
 
+.header-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .page-header h1,
 .workspace-header h1 {
   color: #ffffff;
@@ -386,13 +394,17 @@ select:focus {
 .status-pass,
 .status-completed,
 .status-current,
-.status-low {
+.status-low,
+.status-generated,
+.status-success,
+.status-published {
   background: #143b2b;
   color: #8ff0be;
 }
 
 .status-fail,
 .status-error,
+.status-failure,
 .status-critical,
 .status-high,
 .status-blocking {
@@ -403,6 +415,7 @@ select:focus {
 .status-running,
 .status-medium,
 .status-warning,
+.status-skipped,
 .status-outdated,
 .status-draft {
   background: #3a2d12;
@@ -423,7 +436,6 @@ select:focus {
   color: #8fd2ff;
 }
 
-.status-mock,
 .status-manual,
 .status-added,
 .status-modified,
@@ -441,6 +453,14 @@ select:focus {
   border: 1px solid #763129;
   border-radius: 8px;
   color: #ffcbc5;
+  padding: 12px 14px;
+}
+
+.info-banner {
+  background: #102d45;
+  border: 1px solid #1c5d88;
+  border-radius: 8px;
+  color: #bfe5ff;
   padding: 12px 14px;
 }
 
@@ -593,6 +613,27 @@ select:focus {
 
 .note-list.muted p {
   color: #a6a39b;
+}
+
+.summary-copy,
+.ai-assessments {
+  color: #d8d3c6;
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.summary-copy p,
+.ai-assessments p {
+  margin: 0;
+}
+
+.compact-metrics {
+  padding: 0 16px 16px;
+}
+
+.compact-metrics .metric {
+  min-height: 82px;
 }
 
 .json-panel {
