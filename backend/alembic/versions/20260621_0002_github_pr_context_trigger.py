@@ -18,7 +18,11 @@ depends_on: str | Sequence[str] | None = None
 
 
 analysis_trigger_source = postgresql.ENUM(
-    "mock", "manual", "github_webhook", name="analysis_trigger_source"
+    "mock",
+    "manual",
+    "github_webhook",
+    name="analysis_trigger_source",
+    create_type=False,
 )
 
 

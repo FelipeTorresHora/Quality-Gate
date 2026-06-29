@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.models.coverage_execution_config import CoverageExecutionConfig
+from app.models.github_app_installation import GitHubAppInstallation
 from app.models.quality_gate_config import QualityGateConfig
 from app.models.repository import Repository
 from app.models.user import User
@@ -25,7 +26,15 @@ def list_repositories_for_user(db: Session, user: User) -> list[Repository]:
                 UserRepositoryAccess,
                 UserRepositoryAccess.repository_id == Repository.id,
             )
-            .where(UserRepositoryAccess.user_id == user.id)
+            .join(
+                GitHubAppInstallation,
+                GitHubAppInstallation.id == UserRepositoryAccess.installation_id,
+            )
+            .where(
+                UserRepositoryAccess.user_id == user.id,
+                GitHubAppInstallation.active.is_(True),
+                GitHubAppInstallation.suspended_at.is_(None),
+            )
             .order_by(Repository.full_name)
         )
     )

@@ -19,7 +19,6 @@ class Settings(BaseSettings):
     github_app_private_key_path: str | None = None
     github_app_slug: str | None = None
     github_api_version: str = "2022-11-28"
-    github_token: str | None = None
     github_webhook_secret: str | None = None
     github_default_base_branch: str = "main"
     github_status_context: str = "ai-quality-gate"

@@ -12,7 +12,41 @@ from app.models.enums import (
 )
 
 
-def test_dashboard_summary_with_no_data(client, reset_database):
+def test_dashboard_summary_requires_authentication(client, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.dashboard_service.get_dashboard_summary",
+        lambda db, user: {
+            "total_repositories": 0,
+            "total_analysis_runs": 0,
+            "run_status_counts": {
+                "pending": 0,
+                "running": 0,
+                "completed": 0,
+                "error": 0,
+            },
+            "gate_decision_counts": {"pass": 0, "fail": 0},
+            "approval_rate": None,
+            "recent_analysis_runs": [],
+            "finding_counts": [],
+            "top_blocking_categories": [],
+        },
+    )
+
+    response = client.get("/api/dashboard/summary")
+
+    assert response.status_code == 401
+
+
+def test_dashboard_summary_with_no_data(client, db_session):
+    from app.models.user import User
+    from app.services import session_service
+
+    user = User(github_user_id=404, github_login="empty-user")
+    db_session.add(user)
+    db_session.commit()
+    created = session_service.create_session(db_session, user)
+    client.cookies.set("qg_session", created.cookie_value)
+
     response = client.get("/api/dashboard/summary")
 
     assert response.status_code == 200
