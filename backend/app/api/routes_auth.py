@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_csrf_token
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.user import User
@@ -62,6 +62,7 @@ def github_callback(
 def logout(
     request: Request,
     response: Response,
+    _csrf: None = Depends(require_csrf_token),
     db: Session = Depends(get_db),
 ):
     settings = get_settings()

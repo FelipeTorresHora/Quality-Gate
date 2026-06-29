@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_csrf_token
 from app.db.session import get_db
 from app.models.user import User
 from app.models.enums import AnalysisRunStatus
@@ -78,6 +78,7 @@ def get_pull_request_context(
 def analyze_pull_request(
     repository_id: UUID,
     pr_number: int,
+    _csrf: None = Depends(require_csrf_token),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

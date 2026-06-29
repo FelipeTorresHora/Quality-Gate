@@ -51,6 +51,15 @@ def create_session(
 
 
 def get_user_for_session(db: Session, cookie_value: str | None) -> User | None:
+    session = get_active_session(db, cookie_value)
+    if session is None:
+        return None
+    session.last_seen_at = datetime.now(UTC)
+    db.commit()
+    return db.get(User, session.user_id)
+
+
+def get_active_session(db: Session, cookie_value: str | None) -> UserSession | None:
     if not cookie_value:
         return None
     session = db.scalar(
@@ -62,9 +71,20 @@ def get_user_for_session(db: Session, cookie_value: str | None) -> User | None:
         return None
     if session.revoked_at is not None or session.expires_at <= datetime.now(UTC):
         return None
-    session.last_seen_at = datetime.now(UTC)
-    db.commit()
-    return db.get(User, session.user_id)
+    return session
+
+
+def validate_csrf_token(
+    db: Session,
+    cookie_value: str | None,
+    csrf_token: str | None,
+) -> bool:
+    if not csrf_token:
+        return False
+    session = get_active_session(db, cookie_value)
+    if session is None or not session.csrf_token_hash:
+        return False
+    return hmac.compare_digest(session.csrf_token_hash, _hash_token(csrf_token))
 
 
 def revoke_session(db: Session, cookie_value: str | None) -> None:

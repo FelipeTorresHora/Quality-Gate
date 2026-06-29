@@ -98,16 +98,18 @@ def test_non_admin_cannot_execute_or_publish_analysis(
     reset_database,
     create_user_repo_access,
 ):
-    _user, repository, cookie = create_user_repo_access(is_admin=False)
+    _user, repository, cookie, csrf_token = create_user_repo_access(is_admin=False)
     run_id = _insert_run(str(repository.id))
 
     execute_response = client.post(
         f"/api/analysis-runs/{run_id}/execute",
-        cookies={"qg_session": cookie},
+        cookies={"qg_session": cookie, "qg_csrf": csrf_token},
+        headers={"X-CSRF-Token": csrf_token},
     )
     publish_response = client.post(
         f"/api/analysis-runs/{run_id}/publish-github",
-        cookies={"qg_session": cookie},
+        cookies={"qg_session": cookie, "qg_csrf": csrf_token},
+        headers={"X-CSRF-Token": csrf_token},
     )
 
     assert execute_response.status_code == 403

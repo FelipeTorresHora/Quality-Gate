@@ -16,10 +16,11 @@ No lint/format config in repo (no ruff/black/mypy config files) — match existi
 
 ## Tests (`tests/`)
 
-- `conftest.py` sets the test `DATABASE_URL` before importing `app`, so environment setup must happen before app imports.
+- `conftest.py` sets the test `DATABASE_URL` from `TEST_DATABASE_URL` or the default host Postgres on port `55432` before importing `app`, so environment setup must happen before app imports.
 - `reset_database` fixture drops+recreates all tables per test (full isolation, no transactions/rollback tricks) and `pytest.skip`s the test if Postgres is unreachable rather than failing — don't "fix" that skip, it's intentional for environments without Postgres.
 - `client` fixture is a plain `TestClient(app)`.
 - `repository` fixture creates a GitHub App installation, synchronized repository, admin access, and authenticated session directly through the installation/session services.
+- Mutating authenticated routes require the `qg_csrf` cookie value in the `X-CSRF-Token` header. Tests that call POST/PUT with an authenticated session should pass the fixture's CSRF token.
 - Test files are flat functions, no classes, one file per resource (`test_repositories.py`, `test_quality_gate_config.py`, `test_analysis_runs.py`, `test_github_errors.py`, `test_health.py`).
 
 ## Adding a new resource

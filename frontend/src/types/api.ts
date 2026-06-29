@@ -35,10 +35,13 @@ export type QualityGateConfig = {
   min_total_coverage: number;
   max_coverage_drop: number;
   min_changed_files_coverage: number;
+  coverage_enabled: boolean;
   security_fail_on: string[] | Record<string, unknown>;
+  security_enabled: boolean;
   max_function_lines: number;
   max_complexity: number;
   fail_on_new_todo: boolean;
+  technical_debt_enabled: boolean;
   comment_on_github: boolean;
   publish_github_status: boolean;
   created_at: string;

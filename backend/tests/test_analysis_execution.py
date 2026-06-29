@@ -62,10 +62,17 @@ def _gate_result(status="pass", category=FindingCategory.COVERAGE):
     )
 
 
+def _csrf_headers(repository):
+    return {"X-CSRF-Token": repository["csrf_token"]}
+
+
 def test_execute_rejects_non_pending_run(client, repository):
     run_id = _create_run(repository, status=AnalysisRunStatus.COMPLETED)
 
-    response = client.post(f"/api/analysis-runs/{run_id}/execute")
+    response = client.post(
+        f"/api/analysis-runs/{run_id}/execute",
+        headers=_csrf_headers(repository),
+    )
 
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "analysis_run_not_pending"
@@ -93,7 +100,10 @@ def test_execute_pending_run_completes_with_pass(client, repository, monkeypatch
         lambda **kwargs: _gate_result("pass", FindingCategory.TECHNICAL_DEBT),
     )
 
-    response = client.post(f"/api/analysis-runs/{run_id}/execute")
+    response = client.post(
+        f"/api/analysis-runs/{run_id}/execute",
+        headers=_csrf_headers(repository),
+    )
 
     assert response.status_code == 200
     run = response.json()
@@ -148,7 +158,10 @@ def test_execute_pending_run_stores_generated_ai_review_and_score(
         },
     )
 
-    response = client.post(f"/api/analysis-runs/{run_id}/execute")
+    response = client.post(
+        f"/api/analysis-runs/{run_id}/execute",
+        headers=_csrf_headers(repository),
+    )
 
     assert response.status_code == 200
     run = response.json()
@@ -184,7 +197,10 @@ def test_execute_pending_run_completes_with_fail_when_any_gate_fails(
         lambda **kwargs: _gate_result("pass", FindingCategory.TECHNICAL_DEBT),
     )
 
-    response = client.post(f"/api/analysis-runs/{run_id}/execute")
+    response = client.post(
+        f"/api/analysis-runs/{run_id}/execute",
+        headers=_csrf_headers(repository),
+    )
 
     assert response.status_code == 200
     run = response.json()
@@ -235,7 +251,10 @@ def test_execute_pending_run_errors_and_keeps_partial_snapshots(
 
     monkeypatch.setattr(quality_agent, "generate_ai_review_snapshot", fake_ai_review)
 
-    response = client.post(f"/api/analysis-runs/{run_id}/execute")
+    response = client.post(
+        f"/api/analysis-runs/{run_id}/execute",
+        headers=_csrf_headers(repository),
+    )
 
     assert response.status_code == 200
     run = response.json()
@@ -248,3 +267,50 @@ def test_execute_pending_run_errors_and_keeps_partial_snapshots(
     assert run["ai_review_json"] == {}
     assert "# AI Quality Gate: OPERATIONAL ERROR" in run["final_report_markdown"]
     assert ai_called is False
+
+
+def test_execute_skips_disabled_gates(client, repository, monkeypatch):
+    run_id = _create_run(repository)
+
+    from app.models.quality_gate_config import QualityGateConfig
+    from app.services.gates import coverage_gate, security_gate, technical_debt_gate
+
+    with SessionLocal() as db:
+        config = (
+            db.query(QualityGateConfig)
+            .filter_by(repository_id=repository["id"])
+            .one()
+        )
+        config.coverage_enabled = False
+        config.security_enabled = False
+        db.commit()
+
+    def disabled_gate_called(**kwargs):
+        raise AssertionError("disabled gate should not be called")
+
+    monkeypatch.setattr(coverage_gate, "run_coverage_gate", disabled_gate_called)
+    monkeypatch.setattr(security_gate, "run_security_gate", disabled_gate_called)
+    monkeypatch.setattr(
+        technical_debt_gate,
+        "run_technical_debt_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.TECHNICAL_DEBT),
+    )
+
+    response = client.post(
+        f"/api/analysis-runs/{run_id}/execute",
+        headers=_csrf_headers(repository),
+    )
+
+    assert response.status_code == 200
+    run = response.json()
+    assert run["status"] == "completed"
+    assert run["decision"] == "pass"
+    assert run["coverage_result_json"] == {
+        "status": "skipped",
+        "reason": "coverage_gate_disabled",
+    }
+    assert run["security_result_json"] == {
+        "status": "skipped",
+        "reason": "security_gate_disabled",
+    }
+    assert run["technical_debt_result_json"]["status"] == "pass"
