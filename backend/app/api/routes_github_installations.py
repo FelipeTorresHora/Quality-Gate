@@ -13,6 +13,7 @@ from app.schemas.github_installation import (
     GitHubInstallationRead,
     GitHubInstallUrlRead,
 )
+from app.services import github_installation_service
 
 router = APIRouter(
     prefix="/api/github/installations",
@@ -39,6 +40,7 @@ def list_installations(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    github_installation_service.sync_user_installations(db, current_user)
     installations = db.scalars(
         select(GitHubAppInstallation)
         .join(

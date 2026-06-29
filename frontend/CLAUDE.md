@@ -25,4 +25,5 @@ No test runner, no eslint config in this package — `tsc` is the only check (al
 ## Gotchas
 
 - `VITE_API_BASE_URL` defaults to `http://localhost:8000` in `client.ts` if unset — Docker Compose passes it explicitly as a build/runtime env var.
-- Mock scenario values (`passing`, `coverage_fail`, `security_fail`, `technical_debt_fail`, `mixed_fail`) are hardcoded in `RepositoryDetailPage.tsx`'s `scenarios` array and must match the backend's `SCENARIOS` dict keys in `analysis_service.py` exactly.
+- `request<T>` sends `credentials: "include"` because authentication uses an HttpOnly dashboard session cookie.
+- `AuthGate` owns the unauthenticated login state. Product pages should assume an authenticated user and must not add manual repository or mock-analysis controls.

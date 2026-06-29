@@ -178,6 +178,40 @@ def test_webhook_ignores_unsupported_event(client, webhook_secret):
     }
 
 
+def test_installation_webhook_dispatches_sync(monkeypatch):
+    received = []
+    monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", "secret")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        github_webhook_service,
+        "_has_valid_signature",
+        lambda body, secret, signature_header: True,
+    )
+    monkeypatch.setattr(
+        github_webhook_service,
+        "_process_installation_event",
+        lambda db, event, payload: received.append((event, payload["action"])),
+    )
+
+    result = github_webhook_service.process_github_webhook(
+        object(),
+        json.dumps(
+            {
+                "action": "created",
+                "installation": {"id": 99},
+                "repositories": [],
+            }
+        ).encode(),
+        "installation",
+        "sha256=test",
+    )
+
+    assert result.ignored is True
+    assert result.reason == "installation_synced"
+    assert received == [("installation", "created")]
+    get_settings.cache_clear()
+
+
 @pytest.mark.parametrize(
     ("payload", "reason"),
     [
