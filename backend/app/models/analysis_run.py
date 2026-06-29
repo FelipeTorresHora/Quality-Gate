@@ -73,6 +73,7 @@ class AnalysisRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     technical_debt_result_json: Mapped[dict] = mapped_column(
         JSONB, nullable=False, default=dict
     )
+    ai_review_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     pull_request_snapshot_json: Mapped[dict] = mapped_column(
         JSONB, nullable=False, default=dict
     )
