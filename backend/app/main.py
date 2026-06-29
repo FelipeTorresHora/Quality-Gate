@@ -6,6 +6,7 @@ from app.api import (
     routes_auth,
     routes_coverage_execution_config,
     routes_dashboard,
+    routes_github_installations,
     routes_github_webhooks,
     routes_health,
     routes_quality_gate,
@@ -34,4 +35,5 @@ app.include_router(routes_repositories.router)
 app.include_router(routes_quality_gate.router)
 app.include_router(routes_coverage_execution_config.router)
 app.include_router(routes_analysis.router)
+app.include_router(routes_github_installations.router)
 app.include_router(routes_github_webhooks.router)
