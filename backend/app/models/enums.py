@@ -14,7 +14,6 @@ class GateDecision(str, Enum):
 
 
 class AnalysisTriggerSource(str, Enum):
-    MOCK = "mock"
     MANUAL = "manual"
     GITHUB_WEBHOOK = "github_webhook"
 

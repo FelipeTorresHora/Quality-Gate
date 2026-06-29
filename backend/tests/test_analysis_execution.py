@@ -5,13 +5,18 @@ from app.models.analysis_run import AnalysisRun
 from app.models.enums import AnalysisRunStatus, AnalysisTriggerSource, FindingCategory
 
 
-def _create_pending_run(repository, *, diff_snapshot="diff --git"):
+def _create_run(
+    repository,
+    *,
+    diff_snapshot="diff --git",
+    status=AnalysisRunStatus.PENDING,
+):
     with SessionLocal() as db:
         run = AnalysisRun(
             repository_id=repository["id"],
             pr_number=42,
             head_sha="head123",
-            status=AnalysisRunStatus.PENDING,
+            status=status,
             trigger_source=AnalysisTriggerSource.GITHUB_WEBHOOK,
             pull_request_snapshot_json={
                 "number": 42,
@@ -58,19 +63,16 @@ def _gate_result(status="pass", category=FindingCategory.COVERAGE):
 
 
 def test_execute_rejects_non_pending_run(client, repository):
-    created = client.post(
-        f"/api/repositories/{repository['id']}/analysis-runs/mock",
-        json={"scenario": "passing", "pr_number": 1, "head_sha": "abc"},
-    ).json()
+    run_id = _create_run(repository, status=AnalysisRunStatus.COMPLETED)
 
-    response = client.post(f"/api/analysis-runs/{created['id']}/execute")
+    response = client.post(f"/api/analysis-runs/{run_id}/execute")
 
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "analysis_run_not_pending"
 
 
 def test_execute_pending_run_completes_with_pass(client, repository, monkeypatch):
-    run_id = _create_pending_run(repository)
+    run_id = _create_run(repository)
 
     from app.models.enums import FindingCategory
     from app.services.gates import coverage_gate, security_gate, technical_debt_gate
@@ -107,7 +109,7 @@ def test_execute_pending_run_completes_with_pass(client, repository, monkeypatch
 def test_execute_pending_run_stores_generated_ai_review_and_score(
     client, repository, monkeypatch
 ):
-    run_id = _create_pending_run(repository)
+    run_id = _create_run(repository)
 
     from app.models.enums import FindingCategory
     from app.services.agent import quality_agent
@@ -161,7 +163,7 @@ def test_execute_pending_run_stores_generated_ai_review_and_score(
 def test_execute_pending_run_completes_with_fail_when_any_gate_fails(
     client, repository, monkeypatch
 ):
-    run_id = _create_pending_run(repository)
+    run_id = _create_run(repository)
 
     from app.models.enums import FindingCategory
     from app.services.gates import coverage_gate, security_gate, technical_debt_gate
@@ -198,7 +200,7 @@ def test_execute_pending_run_completes_with_fail_when_any_gate_fails(
 def test_execute_pending_run_errors_and_keeps_partial_snapshots(
     client, repository, monkeypatch
 ):
-    run_id = _create_pending_run(repository)
+    run_id = _create_run(repository)
 
     from app.models.enums import FindingCategory
     from app.services.agent import quality_agent
