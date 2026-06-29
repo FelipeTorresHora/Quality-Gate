@@ -51,12 +51,12 @@ export default function DashboardPage() {
         <EmptyState
           action={
             <Link className="button primary" to="/repositories">
-              Add Repository
+              Manage GitHub App
             </Link>
           }
           title="No repositories registered"
         >
-          Register a repository to start creating mock Analysis Runs.
+          Install the GitHub App to start analyzing Pull Requests.
         </EmptyState>
       )}
 
@@ -117,7 +117,7 @@ export default function DashboardPage() {
         </div>
         {summary.recent_analysis_runs.length === 0 ? (
           <EmptyState title="No Analysis Runs">
-            Create a mock Analysis Run from a repository workspace.
+            Analyze a Pull Request from a repository workspace.
           </EmptyState>
         ) : (
           <div className="table-wrap">
@@ -166,7 +166,7 @@ export default function DashboardPage() {
           </div>
           {summary.finding_counts.length === 0 ? (
             <EmptyState title="No Analysis Findings">
-              Findings will appear after failing mock scenarios.
+              Findings will appear after Pull Request analyses.
             </EmptyState>
           ) : (
             <div className="compact-list">

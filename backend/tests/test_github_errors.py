@@ -1,24 +1,32 @@
-def test_list_pull_requests_without_token_returns_structured_error(
-    client, reset_database
+from app.core.errors import AppError
+from app.services import github_app_auth_service
+
+
+def test_list_pull_requests_with_installation_token_failure_returns_structured_error(
+    client,
+    repository,
+    monkeypatch,
 ):
-    repository_response = client.post(
-        "/api/repositories",
-        json={
-            "owner": "horinha04",
-            "name": "github-projeto",
-            "full_name": "horinha04/github-projeto",
-            "default_branch": "main",
-            "github_repo_id": 123456,
-        },
+    monkeypatch.setattr(
+        github_app_auth_service,
+        "generate_installation_token",
+        lambda installation_id: _raise_installation_token_error(),
     )
-    assert repository_response.status_code == 201
 
     response = client.get(
-        f"/api/repositories/{repository_response.json()['id']}/pull-requests"
+        f"/api/repositories/{repository['id']}/pull-requests"
     )
 
     assert response.status_code == 503
     assert response.json()["detail"] == {
-        "code": "github_token_missing",
-        "message": "GitHub token is not configured.",
+        "code": "github_installation_token_failed",
+        "message": "GitHub installation token could not be generated.",
     }
+
+
+def _raise_installation_token_error():
+    raise AppError(
+        503,
+        "github_installation_token_failed",
+        "GitHub installation token could not be generated.",
+    )

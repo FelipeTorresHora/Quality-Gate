@@ -1,18 +1,6 @@
-def test_create_repository_creates_default_coverage_execution_config(
-    client, reset_database
+def test_synced_repository_has_default_coverage_execution_config(
+    client, repository
 ):
-    response = client.post(
-        "/api/repositories",
-        json={
-            "owner": "horinha04",
-            "name": "meu-projeto",
-            "full_name": "horinha04/meu-projeto",
-            "default_branch": "main",
-        },
-    )
-    assert response.status_code == 201
-    repository = response.json()
-
     config_response = client.get(
         f"/api/repositories/{repository['id']}/coverage-execution-config"
     )
@@ -91,11 +79,11 @@ def test_update_coverage_execution_config_rejects_wrong_report_format(
     assert response.status_code == 422
 
 
-def test_get_coverage_execution_config_missing_repository(client, reset_database):
+def test_get_coverage_execution_config_without_access_is_denied(client, repository):
     response = client.get(
         "/api/repositories/00000000-0000-0000-0000-000000000000/"
         "coverage-execution-config"
     )
 
-    assert response.status_code == 404
-    assert response.json()["detail"]["code"] == "repository_not_found"
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "repository_access_denied"

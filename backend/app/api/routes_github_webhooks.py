@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Request, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -15,6 +15,7 @@ router = APIRouter(tags=["github-webhooks"])
 )
 async def receive_github_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     x_github_event: str | None = Header(default=None, alias="X-GitHub-Event"),
     x_hub_signature_256: str | None = Header(
         default=None,
@@ -28,4 +29,5 @@ async def receive_github_webhook(
         body,
         x_github_event,
         x_hub_signature_256,
+        background_tasks=background_tasks,
     )

@@ -20,6 +20,7 @@ def run_technical_debt_gate(
     repository,
     quality_config,
     coverage_config,
+    repository_token: str | None = None,
 ) -> GateResult:
     diff_error = validate_diff_evidence(
         analysis_run.changed_files_snapshot_json,
@@ -36,7 +37,12 @@ def run_technical_debt_gate(
 
     try:
         with RunnerWorkspace(
-            analysis_run.id, repository_clone_url(repository.owner, repository.name)
+            analysis_run.id,
+            repository_clone_url(
+                repository.owner,
+                repository.name,
+                repository_token,
+            ),
         ) as workspace:
             workspace.checkout(analysis_run.head_sha)
             for changed_file in analysis_run.changed_files_snapshot_json:

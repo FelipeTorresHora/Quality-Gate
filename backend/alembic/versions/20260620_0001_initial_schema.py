@@ -18,14 +18,33 @@ depends_on: str | Sequence[str] | None = None
 
 
 analysis_run_status = postgresql.ENUM(
-    "pending", "running", "completed", "error", name="analysis_run_status"
+    "pending",
+    "running",
+    "completed",
+    "error",
+    name="analysis_run_status",
+    create_type=False,
 )
-gate_decision = postgresql.ENUM("pass", "fail", name="gate_decision")
+gate_decision = postgresql.ENUM(
+    "pass",
+    "fail",
+    name="gate_decision",
+    create_type=False,
+)
 finding_category = postgresql.ENUM(
-    "coverage", "security", "technical_debt", name="finding_category"
+    "coverage",
+    "security",
+    "technical_debt",
+    name="finding_category",
+    create_type=False,
 )
 finding_severity = postgresql.ENUM(
-    "low", "medium", "high", "critical", name="finding_severity"
+    "low",
+    "medium",
+    "high",
+    "critical",
+    name="finding_severity",
+    create_type=False,
 )
 
 

@@ -48,7 +48,7 @@ export default function RepositoryDetailPage() {
           <h1>{repository.full_name}</h1>
           <div className="workspace-meta">
             <span>Default branch: {repository.default_branch}</span>
-            <StatusBadge value={repository.github_repo_id ? "github" : "manual"} />
+            <StatusBadge value="github" />
           </div>
         </div>
         <Link className="button secondary" to="/repositories">

@@ -3,9 +3,12 @@ import type {
   AnalysisRunSummary,
   ApiErrorDetail,
   CoverageExecutionConfig,
+  CurrentUser,
   DashboardSummary,
+  GitHubInstallation,
+  GitHubInstallUrl,
+  GitHubPublicationResult,
   GitHubPullRequest,
-  MockScenario,
   PullRequestContext,
   QualityGateConfig,
   Repository
@@ -28,6 +31,7 @@ export class ApiError extends Error {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(options.headers ?? {})
@@ -48,31 +52,32 @@ export function getHealth() {
   return request<{ status: string }>("/health");
 }
 
+export function getGitHubLoginUrl() {
+  return `${API_BASE_URL}/api/auth/github/login`;
+}
+
+export function getCurrentUser() {
+  return request<CurrentUser>("/api/auth/me");
+}
+
+export function logout() {
+  return request<{ status: string }>("/api/auth/logout", { method: "POST" });
+}
+
+export function listGitHubInstallations() {
+  return request<GitHubInstallation[]>("/api/github/installations");
+}
+
+export function getGitHubInstallUrl() {
+  return request<GitHubInstallUrl>("/api/github/installations/install-url");
+}
+
 export function getDashboardSummary() {
   return request<DashboardSummary>("/api/dashboard/summary");
 }
 
 export function listRepositories() {
   return request<Repository[]>("/api/repositories");
-}
-
-export function createRepository(payload: {
-  owner: string;
-  name: string;
-  full_name?: string;
-  default_branch: string;
-}) {
-  return request<Repository>("/api/repositories", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
-}
-
-export function createGitHubRepository(payload: { owner: string; name: string }) {
-  return request<Repository>("/api/repositories/github", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
 }
 
 export function getRepository(repositoryId: string) {
@@ -88,6 +93,13 @@ export function listPullRequests(repositoryId: string) {
 export function getPullRequestContext(repositoryId: string, prNumber: number) {
   return request<PullRequestContext>(
     `/api/repositories/${repositoryId}/pull-requests/${prNumber}/context`
+  );
+}
+
+export function analyzePullRequest(repositoryId: string, prNumber: number) {
+  return request<AnalysisRunDetail>(
+    `/api/repositories/${repositoryId}/pull-requests/${prNumber}/analyze`,
+    { method: "POST" }
   );
 }
 
@@ -135,19 +147,6 @@ export function listAnalysisRuns(repositoryId: string) {
   );
 }
 
-export function createMockAnalysisRun(
-  repositoryId: string,
-  payload: { scenario: MockScenario; pr_number: number; head_sha: string }
-) {
-  return request<AnalysisRunDetail>(
-    `/api/repositories/${repositoryId}/analysis-runs/mock`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }
-  );
-}
-
 export function getAnalysisRun(analysisRunId: string) {
   return request<AnalysisRunDetail>(`/api/analysis-runs/${analysisRunId}`);
 }
@@ -156,4 +155,13 @@ export function executeAnalysisRun(analysisRunId: string) {
   return request<AnalysisRunDetail>(`/api/analysis-runs/${analysisRunId}/execute`, {
     method: "POST"
   });
+}
+
+export function publishAnalysisRunToGitHub(analysisRunId: string) {
+  return request<GitHubPublicationResult>(
+    `/api/analysis-runs/${analysisRunId}/publish-github`,
+    {
+      method: "POST"
+    }
+  );
 }

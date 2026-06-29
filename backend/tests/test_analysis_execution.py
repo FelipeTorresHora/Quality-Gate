@@ -5,13 +5,18 @@ from app.models.analysis_run import AnalysisRun
 from app.models.enums import AnalysisRunStatus, AnalysisTriggerSource, FindingCategory
 
 
-def _create_pending_run(repository, *, diff_snapshot="diff --git"):
+def _create_run(
+    repository,
+    *,
+    diff_snapshot="diff --git",
+    status=AnalysisRunStatus.PENDING,
+):
     with SessionLocal() as db:
         run = AnalysisRun(
             repository_id=repository["id"],
             pr_number=42,
             head_sha="head123",
-            status=AnalysisRunStatus.PENDING,
+            status=status,
             trigger_source=AnalysisTriggerSource.GITHUB_WEBHOOK,
             pull_request_snapshot_json={
                 "number": 42,
@@ -58,19 +63,16 @@ def _gate_result(status="pass", category=FindingCategory.COVERAGE):
 
 
 def test_execute_rejects_non_pending_run(client, repository):
-    created = client.post(
-        f"/api/repositories/{repository['id']}/analysis-runs/mock",
-        json={"scenario": "passing", "pr_number": 1, "head_sha": "abc"},
-    ).json()
+    run_id = _create_run(repository, status=AnalysisRunStatus.COMPLETED)
 
-    response = client.post(f"/api/analysis-runs/{created['id']}/execute")
+    response = client.post(f"/api/analysis-runs/{run_id}/execute")
 
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "analysis_run_not_pending"
 
 
 def test_execute_pending_run_completes_with_pass(client, repository, monkeypatch):
-    run_id = _create_pending_run(repository)
+    run_id = _create_run(repository)
 
     from app.models.enums import FindingCategory
     from app.services.gates import coverage_gate, security_gate, technical_debt_gate
@@ -98,14 +100,70 @@ def test_execute_pending_run_completes_with_pass(client, repository, monkeypatch
     assert run["status"] == "completed"
     assert run["decision"] == "pass"
     assert run["score"] is None
+    assert run["ai_review_json"]["status"] == "skipped"
     assert run["started_at"] is not None
     assert run["finished_at"] is not None
+    assert "# AI Quality Gate: PASS" in run["final_report_markdown"]
+
+
+def test_execute_pending_run_stores_generated_ai_review_and_score(
+    client, repository, monkeypatch
+):
+    run_id = _create_run(repository)
+
+    from app.models.enums import FindingCategory
+    from app.services.agent import quality_agent
+    from app.services.gates import coverage_gate, security_gate, technical_debt_gate
+
+    monkeypatch.setattr(
+        coverage_gate,
+        "run_coverage_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.COVERAGE),
+    )
+    monkeypatch.setattr(
+        security_gate,
+        "run_security_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.SECURITY),
+    )
+    monkeypatch.setattr(
+        technical_debt_gate,
+        "run_technical_debt_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.TECHNICAL_DEBT),
+    )
+    monkeypatch.setattr(
+        quality_agent,
+        "generate_ai_review_snapshot",
+        lambda **kwargs: {
+            "status": "generated",
+            "model": "gpt-4.1-mini",
+            "generated_at": "2026-06-22T12:00:00Z",
+            "score": 91,
+            "summary": "The PR passes all configured gates.",
+            "risk_level": "low",
+            "blocking_reasons": [],
+            "suggestions": ["Keep coverage high."],
+            "coverage_assessment": "Coverage passed.",
+            "security_assessment": "Security passed.",
+            "technical_debt_assessment": "Technical debt passed.",
+        },
+    )
+
+    response = client.post(f"/api/analysis-runs/{run_id}/execute")
+
+    assert response.status_code == 200
+    run = response.json()
+    assert run["status"] == "completed"
+    assert run["decision"] == "pass"
+    assert run["score"] == 91
+    assert run["ai_review_json"]["status"] == "generated"
+    assert run["ai_review_json"]["summary"] == "The PR passes all configured gates."
+    assert "**Score:** 91/100" in run["final_report_markdown"]
 
 
 def test_execute_pending_run_completes_with_fail_when_any_gate_fails(
     client, repository, monkeypatch
 ):
-    run_id = _create_pending_run(repository)
+    run_id = _create_run(repository)
 
     from app.models.enums import FindingCategory
     from app.services.gates import coverage_gate, security_gate, technical_debt_gate
@@ -132,16 +190,20 @@ def test_execute_pending_run_completes_with_fail_when_any_gate_fails(
     run = response.json()
     assert run["status"] == "completed"
     assert run["decision"] == "fail"
+    assert run["score"] is None
+    assert run["ai_review_json"]["status"] == "skipped"
     assert run["coverage_result_json"]["status"] == "fail"
     assert len(run["findings"]) == 1
+    assert "# AI Quality Gate: FAIL" in run["final_report_markdown"]
 
 
 def test_execute_pending_run_errors_and_keeps_partial_snapshots(
     client, repository, monkeypatch
 ):
-    run_id = _create_pending_run(repository)
+    run_id = _create_run(repository)
 
     from app.models.enums import FindingCategory
+    from app.services.agent import quality_agent
     from app.services.gates import coverage_gate, security_gate, technical_debt_gate
     from app.services.gates.types import GateResult
 
@@ -164,6 +226,14 @@ def test_execute_pending_run_errors_and_keeps_partial_snapshots(
         "run_technical_debt_gate",
         lambda **kwargs: _gate_result("pass", FindingCategory.TECHNICAL_DEBT),
     )
+    ai_called = False
+
+    def fake_ai_review(**kwargs):
+        nonlocal ai_called
+        ai_called = True
+        return {"status": "generated", "score": 80}
+
+    monkeypatch.setattr(quality_agent, "generate_ai_review_snapshot", fake_ai_review)
 
     response = client.post(f"/api/analysis-runs/{run_id}/execute")
 
@@ -175,3 +245,6 @@ def test_execute_pending_run_errors_and_keeps_partial_snapshots(
     assert run["security_result_json"]["status"] == "error"
     assert run["technical_debt_result_json"] == {}
     assert run["error_message"] == "semgrep output was empty"
+    assert run["ai_review_json"] == {}
+    assert "# AI Quality Gate: OPERATIONAL ERROR" in run["final_report_markdown"]
+    assert ai_called is False

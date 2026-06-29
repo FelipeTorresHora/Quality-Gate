@@ -5,7 +5,7 @@ Glossary for the product and domain language used by the PR Quality Gate Dashboa
 ## Language
 
 **MVP Tecnico de Fundacao**:
-The initial build scope that establishes the web app, API, database, migrations, local Docker environment, and mock/manual workflows needed before real PR analysis exists.
+The initial build scope that established the web app, API, database, migrations, and local Docker environment before GitHub-connected Pull Request analysis became the only supported product path.
 _Avoid_: MVP, MVP inicial, produto final
 
 **MVP de Produto**:
@@ -24,12 +24,20 @@ _Avoid_: write-back, GitHub sync, status job
 A GitHub-originated Pull Request lifecycle event that tells the dashboard to start or queue an Analysis Run for a known Repository.
 _Avoid_: webhook, auto analysis, automatic quality gate
 
+**Automatic Pull Request Analysis**:
+The dashboard-owned creation and execution of one Analysis Run for a GitHub App Pull Request event on a repository/head SHA.
+_Avoid_: per-user analysis, mock analysis, background check
+
+**Manual Pull Request Analysis**:
+The user-requested creation and immediate execution of an Analysis Run for a selected live GitHub Pull Request when no current run exists for its head SHA.
+_Avoid_: mock analysis, arbitrary PR number, rerun
+
 **Fase 2.5**:
-The milestone after the database and mock dashboard foundation that adds GitHub Read-only Basico.
+The milestone after the database and dashboard foundation that adds GitHub Read-only Basico.
 _Avoid_: Fase 2, GitHub completo, MVP de Produto
 
 **Fase 4**:
-The dashboard milestone that matures the existing React screens into a cohesive user flow for repositories, Pull Requests, Quality Gate Config, mock Analysis Runs, and analysis history before real quality gates exist.
+The dashboard milestone that matured the React screens into a cohesive user flow for repositories, Pull Requests, Quality Gate Config, and analysis history before real quality gates existed.
 _Avoid_: real analysis, Coverage Gate, Security Gate, Technical Debt Gate
 
 **Operational Error**:
@@ -45,12 +53,12 @@ A dashboard-owned record of one attempt to evaluate a Pull Request against the c
 _Avoid_: Pull Request, check, job
 
 **Analysis Trigger**:
-The source that caused an Analysis Run to exist, such as a dashboard action, controlled mock scenario, or Pull Request Trigger.
+The source that caused an Analysis Run to exist, such as Manual Pull Request Analysis or a Pull Request Trigger.
 _Avoid_: origin, event type, runner source
 
 **Gate Execution**:
 The act of evaluating an Analysis Run against the repository's Quality Gate Config to produce Gate Result Snapshots and Analysis Findings.
-_Avoid_: auto analysis, webhook analysis, mock scenario
+_Avoid_: auto analysis, webhook analysis, mock analysis
 
 **Run Status**:
 The operational state of an Analysis Run: `pending`, `running`, `completed`, or `error`.
@@ -84,16 +92,12 @@ _Avoid_: Pull Request status, GitHub check, live analysis
 The historical changed-file list and patch content captured for an Analysis Run as input evidence for later quality gates.
 _Avoid_: file cache, stored GitHub file, repository file
 
-**Mock Analysis Scenario**:
-A controlled fake Analysis Run shape used to exercise the dashboard before real analyzers exist.
-_Avoid_: real analysis, fixture, random result
-
 **Quality Gate Config**:
-The repository-owned policy that defines which coverage, security, and technical debt conditions block a Pull Request analysis.
-_Avoid_: settings, preferences, scanner config
+The repository-owned policy that defines which coverage, security, and technical debt conditions block Pull Request analysis for that repository.
+_Avoid_: user preference, scanner config
 
 **Coverage Execution Config**:
-The repository-owned instructions that describe how coverage evidence should be produced for a repository before the coverage policy is applied.
+The repository-owned instructions that describe how coverage evidence should be produced before the repository's coverage policy is applied.
 _Avoid_: Quality Gate Config, automatic language detection, scanner config
 
 **Dashboard Summary**:
@@ -104,8 +108,24 @@ _Avoid_: metrics cache, analytics warehouse, navigation page
 A GitHub repository identity known by the dashboard, identified initially by its `owner/name` full name.
 _Avoid_: user repository, project, repo config
 
+**Repository Admin**:
+A User whose GitHub permissions allow them to administer the repository's dashboard-owned quality policy and execution configuration.
+_Avoid_: repository owner, PR author, installer
+
+**GitHub OAuth Login**:
+The user authentication flow where a person signs in to the dashboard with their GitHub identity.
+_Avoid_: GitHub repository access, installation, repository authorization
+
+**GitHub App Installation**:
+The GitHub-owned installation grant that defines which repositories the dashboard may analyze and receive events for.
+_Avoid_: OAuth login, user session, global GitHub token
+
+**Installation Token**:
+A short-lived GitHub App token generated on demand to read repositories, analyze Pull Requests, and publish results for an installed repository.
+_Avoid_: OAuth token, stored access token, user session token
+
 **GitHub Connection**:
-A future user-owned GitHub credential relationship prepared for authentication and permission flows, but not used to own repositories in the foundation build.
+The dashboard-owned relationship between a User and their GitHub identity plus installation access state.
 _Avoid_: global GitHub token, repository ownership
 
 **Local Developer**:

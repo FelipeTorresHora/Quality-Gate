@@ -6,13 +6,38 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.models.coverage_execution_config import CoverageExecutionConfig
+from app.models.github_app_installation import GitHubAppInstallation
 from app.models.quality_gate_config import QualityGateConfig
 from app.models.repository import Repository
+from app.models.user import User
+from app.models.user_repository_access import UserRepositoryAccess
 from app.schemas.repository import RepositoryCreate
 
 
 def list_repositories(db: Session) -> list[Repository]:
     return list(db.scalars(select(Repository).order_by(Repository.full_name)))
+
+
+def list_repositories_for_user(db: Session, user: User) -> list[Repository]:
+    return list(
+        db.scalars(
+            select(Repository)
+            .join(
+                UserRepositoryAccess,
+                UserRepositoryAccess.repository_id == Repository.id,
+            )
+            .join(
+                GitHubAppInstallation,
+                GitHubAppInstallation.id == UserRepositoryAccess.installation_id,
+            )
+            .where(
+                UserRepositoryAccess.user_id == user.id,
+                GitHubAppInstallation.active.is_(True),
+                GitHubAppInstallation.suspended_at.is_(None),
+            )
+            .order_by(Repository.full_name)
+        )
+    )
 
 
 def get_repository(db: Session, repository_id: UUID) -> Repository:

@@ -1,8 +1,7 @@
 from datetime import datetime
-from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from app.models.enums import (
     AnalysisRunStatus,
@@ -11,21 +10,6 @@ from app.models.enums import (
     FindingSeverity,
     GateDecision,
 )
-
-MockScenario = Literal[
-    "passing",
-    "coverage_fail",
-    "security_fail",
-    "technical_debt_fail",
-    "mixed_fail",
-]
-
-
-class MockAnalysisRunCreate(BaseModel):
-    scenario: MockScenario = "mixed_fail"
-    pr_number: int = Field(default=1, ge=1)
-    head_sha: str = "mock-head-sha"
-
 
 class AnalysisFindingRead(BaseModel):
     id: UUID
@@ -64,8 +48,30 @@ class AnalysisRunDetail(AnalysisRunSummary):
     coverage_result_json: dict
     security_result_json: dict
     technical_debt_result_json: dict
+    ai_review_json: dict
     pull_request_snapshot_json: dict
     changed_files_snapshot_json: list[dict]
     diff_truncated: bool
     final_report_markdown: str | None
     findings: list[AnalysisFindingRead]
+
+
+class GitHubPublicationCommentResult(BaseModel):
+    enabled: bool
+    published: bool
+    html_url: str | None = None
+    skipped_reason: str | None = None
+
+
+class GitHubPublicationStatusResult(BaseModel):
+    enabled: bool
+    published: bool
+    target_sha: str | None = None
+    state: str | None = None
+    skipped_reason: str | None = None
+
+
+class GitHubPublicationResult(BaseModel):
+    analysis_run_id: UUID
+    comment: GitHubPublicationCommentResult
+    commit_status: GitHubPublicationStatusResult

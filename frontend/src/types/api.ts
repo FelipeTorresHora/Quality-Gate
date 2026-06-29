@@ -1,3 +1,23 @@
+export type CurrentUser = {
+  id: string;
+  github_user_id: number;
+  github_login: string;
+  name: string | null;
+  avatar_url: string | null;
+  has_github_connection: boolean;
+};
+
+export type GitHubInstallation = {
+  installation_id: number;
+  account_login: string;
+  account_type: string;
+  active: boolean;
+};
+
+export type GitHubInstallUrl = {
+  url: string;
+};
+
 export type Repository = {
   id: string;
   github_repo_id: number | null;
@@ -38,7 +58,7 @@ export type AnalysisFinding = {
   created_at: string;
 };
 
-export type AnalysisTriggerSource = "mock" | "manual" | "github_webhook";
+export type AnalysisTriggerSource = "manual" | "github_webhook";
 
 export type PullRequestSnapshot = {
   number: number;
@@ -88,6 +108,31 @@ export type AnalysisRunSummary = {
   finished_at: string | null;
 };
 
+export type AIReviewSnapshot =
+  | {
+      status: "generated";
+      model: string;
+      generated_at: string;
+      score: number;
+      summary: string;
+      risk_level: "low" | "medium" | "high";
+      blocking_reasons: string[];
+      suggestions: string[];
+      coverage_assessment: string;
+      security_assessment: string;
+      technical_debt_assessment: string;
+    }
+  | {
+      status: "skipped";
+      reason: "openai_api_key_missing" | string;
+    }
+  | {
+      status: "error";
+      reason: "ai_review_failed" | string;
+      message: string;
+    }
+  | Record<string, never>;
+
 export type CoverageExecutionConfig = {
   id: string;
   repository_id: string;
@@ -130,11 +175,29 @@ export type AnalysisRunDetail = AnalysisRunSummary & {
   coverage_result_json: Record<string, unknown>;
   security_result_json: Record<string, unknown>;
   technical_debt_result_json: Record<string, unknown>;
+  ai_review_json: AIReviewSnapshot;
   pull_request_snapshot_json: Partial<PullRequestSnapshot>;
   changed_files_snapshot_json: ChangedFileSnapshot[];
   diff_truncated: boolean;
   final_report_markdown: string | null;
   findings: AnalysisFinding[];
+};
+
+export type GitHubPublicationResult = {
+  analysis_run_id: string;
+  comment: {
+    enabled: boolean;
+    published: boolean;
+    html_url: string | null;
+    skipped_reason: string | null;
+  };
+  commit_status: {
+    enabled: boolean;
+    published: boolean;
+    target_sha: string | null;
+    state: string | null;
+    skipped_reason: string | null;
+  };
 };
 
 export type PullRequestReviewRun = {
@@ -166,13 +229,6 @@ export type GitHubPullRequest = {
   updated_at: string;
   review_state: PullRequestReviewState;
 };
-
-export type MockScenario =
-  | "passing"
-  | "coverage_fail"
-  | "security_fail"
-  | "technical_debt_fail"
-  | "mixed_fail";
 
 export type ApiErrorDetail = {
   code: string;
