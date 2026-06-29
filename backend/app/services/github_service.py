@@ -12,10 +12,12 @@ from app.schemas.github import (
     PullRequestContextRead,
     PullRequestSnapshot,
 )
-from app.schemas.repository import RepositoryCreate
-from app.services import pull_request_review_service
-from app.services import github_app_auth_service, github_installation_service
-from app.services.repository_service import create_repository, get_repository
+from app.services import (
+    github_app_auth_service,
+    github_installation_service,
+    pull_request_review_service,
+)
+from app.services.repository_service import get_repository
 
 MAX_DIFF_BYTES = 5 * 1024 * 1024
 
@@ -202,19 +204,6 @@ class GitHubClient:
                 "github_request_failed",
                 "GitHub API request failed.",
             )
-
-
-def create_repository_from_github(db: Session, owner: str, name: str):
-    settings = get_settings()
-    github_repo = GitHubClient(settings.github_token).get_repository(owner, name)
-    payload = RepositoryCreate(
-        owner=github_repo["owner"]["login"],
-        name=github_repo["name"],
-        full_name=github_repo["full_name"],
-        default_branch=github_repo.get("default_branch") or settings.github_default_base_branch,
-        github_repo_id=github_repo["id"],
-    )
-    return create_repository(db, payload)
 
 
 def installation_client_for_repository(

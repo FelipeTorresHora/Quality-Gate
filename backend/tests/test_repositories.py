@@ -1,41 +1,29 @@
-def test_create_repository_creates_default_quality_gate_config(client, reset_database):
+from uuid import UUID
+
+from app.db.session import SessionLocal
+from app.models.analysis_run import AnalysisRun
+from app.models.enums import AnalysisRunStatus, AnalysisTriggerSource, GateDecision
+
+
+def test_manual_repository_creation_endpoint_is_removed(client, repository):
     response = client.post(
         "/api/repositories",
-        json={
-            "owner": "horinha04",
-            "name": "meu-projeto",
-            "full_name": "horinha04/meu-projeto",
-            "default_branch": "main",
-        },
+        json={"owner": "octo-org", "name": "quality-api", "default_branch": "main"},
     )
 
-    assert response.status_code == 201
-    repository = response.json()
-    assert repository["id"]
-    assert repository["owner"] == "horinha04"
-    assert repository["name"] == "meu-projeto"
-    assert repository["full_name"] == "horinha04/meu-projeto"
-    assert repository["default_branch"] == "main"
-    assert "user_id" not in repository
+    assert response.status_code == 404
 
-    config_response = client.get(
-        f"/api/repositories/{repository['id']}/quality-gate-config"
+
+def test_github_repository_creation_endpoint_is_removed(client, repository):
+    response = client.post(
+        "/api/repositories/github",
+        json={"owner": "octo-org", "name": "quality-api"},
     )
-    assert config_response.status_code == 200
-    config = config_response.json()
-    assert config["repository_id"] == repository["id"]
-    assert config["min_total_coverage"] == 80
-    assert config["max_coverage_drop"] == 0
-    assert config["min_changed_files_coverage"] == 75
-    assert config["security_fail_on"] == ["critical", "high"]
-    assert config["max_function_lines"] == 80
-    assert config["max_complexity"] == 10
-    assert config["fail_on_new_todo"] is True
-    assert config["comment_on_github"] is False
-    assert config["publish_github_status"] is False
+
+    assert response.status_code == 404
 
 
-def test_list_repositories_returns_created_repository(client, repository):
+def test_list_repositories_returns_synced_repository(client, repository):
     response = client.get("/api/repositories")
 
     assert response.status_code == 200
@@ -45,33 +33,14 @@ def test_list_repositories_returns_created_repository(client, repository):
     assert repositories[0]["full_name"] == "horinha04/meu-projeto"
 
 
-def test_create_repository_rejects_duplicate_full_name(client, repository):
-    response = client.post(
-        "/api/repositories",
-        json={
-            "owner": "horinha04",
-            "name": "meu-projeto",
-            "full_name": "horinha04/meu-projeto",
-            "default_branch": "main",
-        },
-    )
-
-    assert response.status_code == 409
-    assert response.json()["detail"]["code"] == "repository_already_exists"
-
-
-def test_list_pull_requests_for_manual_repository_returns_empty_queue(client, repository):
-    response = client.get(f"/api/repositories/{repository['id']}/pull-requests")
-
-    assert response.status_code == 200
-    assert response.json() == []
-
-
-def test_list_pull_requests_includes_not_run_review_state(client, reset_database, monkeypatch):
-    github_repository = _create_github_repository(client)
+def test_list_pull_requests_includes_not_run_review_state(
+    client,
+    repository,
+    monkeypatch,
+):
     _patch_pull_requests(monkeypatch, head_sha="abc123")
 
-    response = client.get(f"/api/repositories/{github_repository['id']}/pull-requests")
+    response = client.get(f"/api/repositories/{repository['id']}/pull-requests")
 
     assert response.status_code == 200
     pull_requests = response.json()
@@ -84,16 +53,14 @@ def test_list_pull_requests_includes_not_run_review_state(client, reset_database
 
 
 def test_list_pull_requests_marks_matching_head_sha_as_current(
-    client, reset_database, monkeypatch
+    client,
+    repository,
+    monkeypatch,
 ):
-    github_repository = _create_github_repository(client)
     _patch_pull_requests(monkeypatch, head_sha="abc123")
-    created = client.post(
-        f"/api/repositories/{github_repository['id']}/analysis-runs/mock",
-        json={"scenario": "passing", "pr_number": 42, "head_sha": "abc123"},
-    ).json()
+    created = _insert_analysis_run(repository["id"], head_sha="abc123")
 
-    response = client.get(f"/api/repositories/{github_repository['id']}/pull-requests")
+    response = client.get(f"/api/repositories/{repository['id']}/pull-requests")
 
     assert response.status_code == 200
     review_state = response.json()[0]["review_state"]
@@ -102,24 +69,22 @@ def test_list_pull_requests_marks_matching_head_sha_as_current(
         "id": created["id"],
         "status": "completed",
         "decision": "pass",
-        "score": 96,
-        "trigger_source": "mock",
+        "score": 96.0,
+        "trigger_source": "manual",
         "head_sha": "abc123",
         "created_at": created["created_at"],
     }
 
 
 def test_list_pull_requests_marks_different_head_sha_as_outdated(
-    client, reset_database, monkeypatch
+    client,
+    repository,
+    monkeypatch,
 ):
-    github_repository = _create_github_repository(client)
     _patch_pull_requests(monkeypatch, head_sha="new-sha")
-    created = client.post(
-        f"/api/repositories/{github_repository['id']}/analysis-runs/mock",
-        json={"scenario": "passing", "pr_number": 42, "head_sha": "old-sha"},
-    ).json()
+    created = _insert_analysis_run(repository["id"], head_sha="old-sha")
 
-    response = client.get(f"/api/repositories/{github_repository['id']}/pull-requests")
+    response = client.get(f"/api/repositories/{repository['id']}/pull-requests")
 
     assert response.status_code == 200
     review_state = response.json()[0]["review_state"]
@@ -128,19 +93,30 @@ def test_list_pull_requests_marks_different_head_sha_as_outdated(
     assert review_state["analysis_run"]["head_sha"] == "old-sha"
 
 
-def _create_github_repository(client):
-    response = client.post(
-        "/api/repositories",
-        json={
-            "owner": "horinha04",
-            "name": "github-projeto",
-            "full_name": "horinha04/github-projeto",
-            "default_branch": "main",
-            "github_repo_id": 123456,
-        },
-    )
-    assert response.status_code == 201
-    return response.json()
+def _insert_analysis_run(repository_id: str, *, head_sha: str) -> dict[str, str]:
+    with SessionLocal() as db:
+        run = AnalysisRun(
+            repository_id=UUID(repository_id),
+            pr_number=42,
+            head_sha=head_sha,
+            status=AnalysisRunStatus.COMPLETED,
+            decision=GateDecision.PASS,
+            trigger_source=AnalysisTriggerSource.MANUAL,
+            score=96,
+            coverage_result_json={"status": "pass"},
+            security_result_json={"status": "pass"},
+            technical_debt_result_json={"status": "pass"},
+            ai_review_json={},
+            pull_request_snapshot_json={"number": 42},
+            changed_files_snapshot_json=[],
+            diff_truncated=False,
+        )
+        db.add(run)
+        db.commit()
+        return {
+            "id": str(run.id),
+            "created_at": run.created_at.isoformat().replace("+00:00", "Z"),
+        }
 
 
 def _patch_pull_requests(monkeypatch, head_sha: str):
@@ -148,7 +124,7 @@ def _patch_pull_requests(monkeypatch, head_sha: str):
     from app.services.github_service import GitHubClient
 
     def fake_list_pull_requests(self, owner, name):
-        assert (owner, name) == ("horinha04", "github-projeto")
+        assert (owner, name) == ("horinha04", "meu-projeto")
         return [
             GitHubPullRequestRead(
                 number=42,
@@ -159,12 +135,15 @@ def _patch_pull_requests(monkeypatch, head_sha: str):
                 head_ref="feature/dashboard",
                 head_sha=head_sha,
                 base_ref="main",
-                html_url="https://github.com/horinha04/github-projeto/pull/42",
+                html_url="https://github.com/horinha04/meu-projeto/pull/42",
                 created_at="2026-06-21T10:00:00Z",
                 updated_at="2026-06-21T11:00:00Z",
             )
         ]
 
     monkeypatch.setattr(
-        GitHubClient, "list_pull_requests", fake_list_pull_requests, raising=False
+        GitHubClient,
+        "list_pull_requests",
+        fake_list_pull_requests,
+        raising=False,
     )
