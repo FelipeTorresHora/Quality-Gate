@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+from uuid import uuid4
+
 from app.models.enums import FindingCategory, FindingSeverity
 
 
@@ -73,3 +76,45 @@ def test_scanner_missing_output_is_operational_error():
 
     assert result["status"] == "error"
     assert "semgrep output was empty" in result["error_message"]
+
+
+def test_security_gate_uses_repository_token_for_clone(monkeypatch):
+    from app.services import runner_service
+    from app.services.gates import security_gate
+
+    seen = {}
+
+    class FakeWorkspace:
+        def __init__(self, analysis_run_id, repository_url):
+            seen["analysis_run_id"] = analysis_run_id
+            seen["repository_url"] = repository_url
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def checkout(self, revision):
+            seen["revision"] = revision
+
+    monkeypatch.setattr(runner_service, "RunnerWorkspace", FakeWorkspace)
+    monkeypatch.setattr(security_gate, "_scanner_commands", lambda language: [])
+
+    result = security_gate.run_security_gate(
+        analysis_run=SimpleNamespace(id=uuid4(), head_sha="head-sha"),
+        repository=SimpleNamespace(owner="octo-org", name="quality-api"),
+        quality_config=SimpleNamespace(
+            security_fail_on=["critical", "high"]
+        ),
+        coverage_config=SimpleNamespace(
+            language=SimpleNamespace(value="python")
+        ),
+        repository_token="installation-token",
+    )
+
+    assert result.snapshot["status"] == "pass"
+    assert seen["repository_url"] == (
+        "https://x-access-token:installation-token"
+        "@github.com/octo-org/quality-api.git"
+    )

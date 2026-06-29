@@ -23,6 +23,7 @@ def run_coverage_gate(
     repository,
     quality_config,
     coverage_config,
+    repository_token: str | None = None,
 ) -> GateResult:
     base_sha = analysis_run.pull_request_snapshot_json.get("base_sha")
     head_sha = analysis_run.head_sha
@@ -38,7 +39,12 @@ def run_coverage_gate(
     command_metadata: list[dict] = []
     try:
         with RunnerWorkspace(
-            analysis_run.id, repository_clone_url(repository.owner, repository.name)
+            analysis_run.id,
+            repository_clone_url(
+                repository.owner,
+                repository.name,
+                repository_token,
+            ),
         ) as workspace:
             base_report = _run_revision_coverage(workspace, base_sha, coverage_config)
             head_report = _run_revision_coverage(workspace, head_sha, coverage_config)

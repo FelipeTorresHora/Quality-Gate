@@ -64,8 +64,30 @@ class AnalysisRunDetail(AnalysisRunSummary):
     coverage_result_json: dict
     security_result_json: dict
     technical_debt_result_json: dict
+    ai_review_json: dict
     pull_request_snapshot_json: dict
     changed_files_snapshot_json: list[dict]
     diff_truncated: bool
     final_report_markdown: str | None
     findings: list[AnalysisFindingRead]
+
+
+class GitHubPublicationCommentResult(BaseModel):
+    enabled: bool
+    published: bool
+    html_url: str | None = None
+    skipped_reason: str | None = None
+
+
+class GitHubPublicationStatusResult(BaseModel):
+    enabled: bool
+    published: bool
+    target_sha: str | None = None
+    state: str | None = None
+    skipped_reason: str | None = None
+
+
+class GitHubPublicationResult(BaseModel):
+    analysis_run_id: UUID
+    comment: GitHubPublicationCommentResult
+    commit_status: GitHubPublicationStatusResult

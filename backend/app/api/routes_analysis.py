@@ -7,10 +7,12 @@ from app.db.session import get_db
 from app.schemas.analysis import (
     AnalysisRunDetail,
     AnalysisRunSummary,
+    GitHubPublicationResult,
     MockAnalysisRunCreate,
 )
 from app.services import analysis_service
 from app.services import analysis_execution_service
+from app.services import github_publication_service
 
 router = APIRouter(tags=["analysis-runs"])
 
@@ -47,3 +49,15 @@ def get_analysis_run(analysis_run_id: UUID, db: Session = Depends(get_db)):
 )
 def execute_analysis_run(analysis_run_id: UUID, db: Session = Depends(get_db)):
     return analysis_execution_service.execute_analysis_run(db, analysis_run_id)
+
+
+@router.post(
+    "/api/analysis-runs/{analysis_run_id}/publish-github",
+    response_model=GitHubPublicationResult,
+)
+def publish_analysis_run_to_github(
+    analysis_run_id: UUID, db: Session = Depends(get_db)
+):
+    return github_publication_service.publish_analysis_run_to_github(
+        db, analysis_run_id
+    )
