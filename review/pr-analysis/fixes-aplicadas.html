@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fixes aplicadas — Análise de Pull Request</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --ink: #e2e8f0; --muted: #94a3b8;
+    --accent: #38bdf8; --green: #34d399; --red: #f87171; --amber: #fbbf24;
+    --border: #334155; --code-bg: #0b1220;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+  }
+  header.page {
+    padding: 48px 32px 32px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #15233b, var(--bg));
+  }
+  header.page h1 { margin: 0 0 8px; font-size: 28px; }
+  header.page p { margin: 4px 0; color: var(--muted); max-width: 70ch; }
+  main { max-width: 980px; margin: 0 auto; padding: 32px; }
+  .toc { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 24px; margin-bottom: 32px; }
+  .toc h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 8px 0; }
+  .toc ol { margin: 8px 0; padding-left: 20px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  section.fix { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px 28px; margin-bottom: 28px; }
+  section.fix h2 { margin: 0 0 4px; font-size: 20px; }
+  .pa-tags { margin: 4px 0 16px; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: #0b3a4a; color: var(--accent); margin-right: 6px; }
+  h3 { font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 20px 0 8px; }
+  .grid { display: grid; grid-template-columns: 90px 1fr; gap: 6px 16px; align-items: start; }
+  .grid .label { color: var(--muted); font-size: 13px; padding-top: 2px; }
+  code, pre { font-family: "SF Mono", "JetBrains Mono", Consolas, monospace; }
+  code { background: var(--code-bg); padding: 1px 6px; border-radius: 5px; font-size: 13px; color: #cbd5e1; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: 12.5px; }
+  .files li { font-size: 13px; }
+  .tdd { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+  .step { flex: 1; min-width: 220px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; background: #15233b; }
+  .step b { display: block; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; margin-bottom: 4px; }
+  .red b { color: var(--red); }
+  .green b { color: var(--green); }
+  .result { border-left: 3px solid var(--green); padding: 8px 0 8px 14px; margin-top: 12px; color: #d1fae5; background: rgba(52,211,153,.06); border-radius: 0 8px 8px 0; padding-right: 14px; }
+  .note { border-left: 3px solid var(--amber); padding: 8px 14px; margin-top: 12px; color: #fde68a; background: rgba(251,191,36,.06); border-radius: 0 8px 8px 0; font-size: 13.5px; }
+  footer { color: var(--muted); font-size: 13px; padding: 24px 32px 48px; max-width: 980px; margin: 0 auto; border-top: 1px solid var(--border); }
+  .summary-cards { display: flex; gap: 16px; flex-wrap: wrap; margin: 24px 0 8px; }
+  .card { flex: 1; min-width: 160px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+  .card .n { font-size: 26px; font-weight: 700; color: var(--accent); }
+  .card .t { font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>Correções aplicadas — Workflow de Análise de Pull Request</h1>
+  <p>Implementação por TDD (Red → Green → Refactor) dos cinco planos em <code>fixes/</code>,
+     na ordem recomendada do <code>README.md</code>: segredos, execução assíncrona, runtime do
+     executor, estado do run/download e lógica de cobertura.</p>
+  <p>Cada item lista o problema, a mudança, o teste que a prova e o resultado esperado.</p>
+  <div class="summary-cards">
+    <div class="card"><div class="n">5</div><div class="t">planos aplicados</div></div>
+    <div class="card"><div class="n">14</div><div class="t">achados (PA-01…PA-15)</div></div>
+    <div class="card"><div class="n">135</div><div class="t">testes passando</div></div>
+    <div class="card"><div class="n">+24</div><div class="t">testes novos</div></div>
+  </div>
+</header>
+
+<main>
+  <nav class="toc">
+    <h2>Índice</h2>
+    <ol>
+      <li><a href="#fix03">Fix 03 — Vazamento de segredos e redação de saída (PA-11/13/14)</a></li>
+      <li><a href="#fix01">Fix 01 — Execução assíncrona com fila durável (PA-02/04)</a></li>
+      <li><a href="#fix02">Fix 02 — Runtime com toolchain e teto de tempo (PA-01/03)</a></li>
+      <li><a href="#fix04">Fix 04 — Run preso e download de repo privado (PA-05/06/15)</a></li>
+      <li><a href="#fix05">Fix 05 — Lógica de cobertura e débito técnico (PA-07/08/09/10)</a></li>
+    </ol>
+  </nav>
+
+  <!-- FIX 03 -->
+  <section class="fix" id="fix03">
+    <h2>Fix 03 — Vazamento de segredos e redação de saída</h2>
+    <div class="pa-tags"><span class="tag">PA-11</span><span class="tag">PA-13</span><span class="tag">PA-14</span></div>
+
+    <h3>Problema</h3>
+    <p>O subprocess dos gates herdava <b>todo</b> o ambiente menos alguns prefixos (blocklist).
+       <code>SESSION_SECRET</code> e <code>TOKEN_ENCRYPTION_KEY</code> não estavam na lista e
+       vazavam para código não-confiável. <code>stdout</code>/<code>stderr</code> eram persistidos
+       no snapshot (e podiam ir para comentários no GitHub) sem redação.</p>
+
+    <h3>O que mudou</h3>
+    <p>Blocklist → <b>allowlist</b> em <code>_safe_env</code>: o processo só vê o mínimo do
+       toolchain (<code>PATH</code>, <code>HOME</code>, <code>GOPATH</code>, <code>NODE_ENV</code>…).
+       Qualquer segredo novo no <code>.env</code> passa a ser seguro por padrão.
+       Adicionado <code>redact_secrets()</code> (tokens <code>ghs_</code>/<code>gho_</code>/<code>github_pat_</code>,
+       credencial <code>x-access-token:…@</code> e blocos de chave privada) aplicado em
+       <code>CommandResult.to_snapshot</code>.</p>
+    <div class="grid">
+      <span class="label">Arquivos</span>
+      <ul class="files"><li><code>backend/app/services/runner_service.py</code></li></ul>
+    </div>
+
+    <h3>TDD</h3>
+    <div class="tdd">
+      <div class="step red"><b>Red</b><code>test_runner_secrets.py</code>: <code>_safe_env</code> ainda continha <code>SESSION_SECRET</code>; <code>redact_secrets</code> nem existia.</div>
+      <div class="step green"><b>Green</b>Allowlist + <code>redact_secrets</code>; 7 testes passam (não-vazamento, PATH default, mascaramento de tokens/chave).</div>
+    </div>
+    <div class="result"><b>Resultado esperado:</b> nenhum segredo da app entra no ambiente do scanner
+       e a saída persistida nunca contém tokens/chaves em texto claro.</div>
+    <div class="note">PA-12 (isolar a execução de código não-confiável em sandbox/Actions) é decisão de
+       arquitetura — a allowlist reduz o vazamento, mas o sandbox em si fica fora do escopo de código testável.</div>
+  </section>
+
+  <!-- FIX 01 -->
+  <section class="fix" id="fix01">
+    <h2>Fix 01 — Execução assíncrona com fila durável</h2>
+    <div class="pa-tags"><span class="tag">PA-02</span><span class="tag">PA-04</span></div>
+
+    <h3>Problema</h3>
+    <p>O pipeline pesado rodava <b>dentro da requisição HTTP</b> (timeout/504) e o
+       <code>BackgroundTasks</code> morre em runtime serverless. Resultado: "erro em produção".</p>
+
+    <h3>O que mudou</h3>
+    <p>As rotas agora só <b>enfileiram</b> e respondem <code>202 Accepted</code>; um worker durável
+       consome a fila e executa o pipeline. Fila no próprio Postgres com
+       <code>FOR UPDATE SKIP LOCKED</code> (sem Redis/Celery).</p>
+    <pre>POST …/analyze ─▶ cria AnalysisRun (PENDING) ─▶ enqueue ─▶ 202 {run_id}
+                                                  │
+                       worker (container) ◀───────┘ executa o pipeline
+frontend ─▶ GET /analysis-runs/{id}  (polling até completed | error)</pre>
+    <div class="grid">
+      <span class="label">Arquivos</span>
+      <ul class="files">
+        <li><code>app/models/analysis_job.py</code> + migração <code>…_0009_add_analysis_jobs.py</code></li>
+        <li><code>app/services/analysis_queue.py</code> (<code>enqueue</code>/<code>claim_next</code>)</li>
+        <li><code>app/worker.py</code> (<code>process_next_job</code>/<code>run_forever</code>)</li>
+        <li><code>routes_repositories.py</code>, <code>routes_analysis.py</code>, webhook → <code>enqueue</code> + <code>202</code></li>
+        <li><code>frontend/.../AnalysisDetailPage.tsx</code> (polling de 3s enquanto pending/running)</li>
+      </ul>
+    </div>
+
+    <h3>TDD</h3>
+    <div class="tdd">
+      <div class="step red"><b>Red</b>Fila/worker inexistentes; testes de rota ainda esperavam <code>200</code> + run executado.</div>
+      <div class="step green"><b>Green</b><code>test_analysis_queue.py</code> (enqueue idempotente, claim único), <code>test_worker.py</code> (claim+execute, erro engolido) e contratos de rota assíncronos passam.</div>
+    </div>
+    <div class="result"><b>Resultado esperado:</b> a request responde na hora; a análise roda fora dela
+       e o estado evolui PENDING → RUNNING → COMPLETED/ERROR via polling.</div>
+    <div class="note">Os testes do pipeline foram repontados para chamar <code>execute_analysis_run</code>
+       diretamente (a rota deixou de executar de forma síncrona — passou a só enfileirar).</div>
+  </section>
+
+  <!-- FIX 02 -->
+  <section class="fix" id="fix02">
+    <h2>Fix 02 — Runtime com toolchain e teto de tempo</h2>
+    <div class="pa-tags"><span class="tag">PA-01</span><span class="tag">PA-03</span></div>
+
+    <h3>Problema</h3>
+    <p>A função serverless não tem <code>git</code>/<code>npm</code>/<code>go</code>/scanners nem disco
+       gravável, e <code>command_timeout_seconds</code> podia exceder o teto do runtime.</p>
+
+    <h3>O que mudou</h3>
+    <p>Opção <b>A</b> (worker em container) adotada: serviço <code>worker</code> no
+       <code>docker-compose.yml</code> usando o <code>backend/Dockerfile</code> (que já tem o toolchain),
+       com smoke-test dos scanners no build. Introduzido o <code>Runner</code> Protocol para trocar
+       a implementação de execução sem reescrever os gates. Adicionado
+       <code>analysis_total_timeout_seconds</code> (900s) e um deadline global aplicado antes de cada gate.</p>
+    <div class="grid">
+      <span class="label">Arquivos</span>
+      <ul class="files">
+        <li><code>app/services/gates/runner_protocol.py</code> (Protocol <code>runtime_checkable</code>)</li>
+        <li><code>app/core/config.py</code> (<code>analysis_total_timeout_seconds</code>)</li>
+        <li><code>app/services/analysis_execution_service.py</code> (deadline por gate)</li>
+        <li><code>backend/Dockerfile</code> (smoke-test), <code>docker-compose.yml</code> (serviço <code>worker</code>)</li>
+      </ul>
+    </div>
+
+    <h3>TDD</h3>
+    <div class="tdd">
+      <div class="step red"><b>Red</b><code>runner_protocol</code> inexistente; orçamento total de tempo não respeitado.</div>
+      <div class="step green"><b>Green</b><code>test_runner_protocol.py</code> (RunnerWorkspace satisfaz o Protocol; default 900s) e teste que aborta a análise quando o orçamento estoura passam.</div>
+    </div>
+    <div class="result"><b>Resultado esperado:</b> a análise roda num runtime com toolchain e disco gravável,
+       e nunca ultrapassa o teto global — vira ERROR controlado em vez de travar.</div>
+  </section>
+
+  <!-- FIX 04 -->
+  <section class="fix" id="fix04">
+    <h2>Fix 04 — Run preso e download de repo privado</h2>
+    <div class="pa-tags"><span class="tag">PA-05</span><span class="tag">PA-06</span><span class="tag">PA-15</span></div>
+
+    <h3>Problema</h3>
+    <p>Exceção após <code>status = RUNNING</code> deixava o run <b>preso</b> (guard só aceitava
+       PENDING/ERROR). Download direto do <code>codeload</code> com <code>Bearer</code> dava 404 em
+       repositório privado. <code>create_or_reuse_*</code> tinha código duplicado.</p>
+
+    <h3>O que mudou</h3>
+    <p>Pipeline envolvido em <code>try/except</code>: qualquer exceção vira ERROR via
+       <code>_finish_with_error</code>. Runs <code>RUNNING</code> antigos (&gt;30 min) podem ser
+       reexecutados (recuperação de stale). Download passou para o endpoint oficial
+       <code>/repos/{owner}/{repo}/tarball/{ref}</code> e o <code>Authorization</code> é removido ao
+       seguir o redirect assinado do <code>codeload</code>. Builder comum
+       <code>_build_pending_run</code> + <code>_create_or_reuse</code>.</p>
+    <div class="grid">
+      <span class="label">Arquivos</span>
+      <ul class="files">
+        <li><code>app/services/analysis_execution_service.py</code> (try/except + stale)</li>
+        <li><code>app/services/runner_service.py</code> (<code>_archive_url</code>, <code>_NoAuthOnRedirect</code>)</li>
+        <li><code>app/services/analysis_service.py</code> (dedup do builder)</li>
+      </ul>
+    </div>
+
+    <h3>TDD</h3>
+    <div class="tdd">
+      <div class="step red"><b>Red</b>Exceção no gate propagava (run ficava RUNNING); URL ainda era <code>codeload…tar.gz</code>; <code>_build_pending_run</code> não existia.</div>
+      <div class="step green"><b>Green</b>Testes de stale-rerun, "exceção → ERROR", URL <code>api…/tarball</code>, redirect sem <code>Authorization</code> e builder compartilhado passam.</div>
+    </div>
+    <div class="result"><b>Resultado esperado:</b> nenhum run fica preso em RUNNING; o tarball de repositório
+       privado baixa via URL assinada sem vazar o Bearer para o host de download.</div>
+  </section>
+
+  <!-- FIX 05 -->
+  <section class="fix" id="fix05">
+    <h2>Fix 05 — Lógica de cobertura e débito técnico</h2>
+    <div class="pa-tags"><span class="tag">PA-07</span><span class="tag">PA-08</span><span class="tag">PA-09</span><span class="tag">PA-10</span></div>
+
+    <h3>Problema</h3>
+    <p>A base de cobertura era sempre medida (2× custo). Arquivo alterado sem dado de cobertura
+       contava como <b>0%</b> e a média era simples (não ponderada). <code>lstrip("./")</code> corrompia
+       paths como <code>.github/…</code>. Função "longa" em JS/TS/Go bloqueava o PR com heurística de
+       contagem de chaves não-confiável.</p>
+
+    <h3>O que mudou</h3>
+    <ul>
+      <li><b>PA-08:</b> base só é medida quando <code>max_coverage_drop</code> está ativo; sem base,
+          a regra de drop não dispara.</li>
+      <li><b>PA-07:</b> arquivo sem dado vira <code>unmatched</code> (aviso), não 0%; média
+          <b>ponderada por linha</b>; se nenhum arquivo tem dado, retorna <code>None</code>.</li>
+      <li><b>PA-09:</b> <code>removeprefix("./")</code>, casamento tolerante a
+          <code>working_directory</code> e fallback por sufixo.</li>
+      <li><b>PA-10:</b> finding de função longa em linguagem de chave vira <code>blocking=False</code>
+          (LOW) — visível, mas não reprova.</li>
+    </ul>
+    <div class="grid">
+      <span class="label">Arquivos</span>
+      <ul class="files">
+        <li><code>app/services/gates/coverage_gate.py</code></li>
+        <li><code>app/services/gates/technical_debt_gate.py</code></li>
+      </ul>
+    </div>
+
+    <h3>TDD</h3>
+    <div class="tdd">
+      <div class="step red"><b>Red</b>Arquivo ausente dava 40% (média com 0); <code>.github/…</code> virava <code>github/…</code>; base sempre medida; brace finding com <code>blocking=True</code>.</div>
+      <div class="step green"><b>Green</b>Testes de ponderação por linha, <code>unmatched</code>, prefixo de working_directory, fallback por sufixo, base ignorada sem policy e brace não-bloqueante passam.</div>
+    </div>
+    <div class="result"><b>Resultado esperado:</b> menos falsos positivos/negativos de cobertura, paths casados
+       corretamente, metade do custo quando não há regra de drop, e nenhum PR reprovado por
+       heurística de chaves.</div>
+  </section>
+
+  <footer>
+    Gerado a partir da implementação por TDD dos planos em <code>review/pr-analysis/fixes/</code>.
+    Suíte do backend: <b>135 testes passando</b> (<code>pytest</code>); frontend verificado com
+    <code>tsc -b</code>. Decisão de arquitetura registrada: worker em container (Opção A);
+    isolamento por sandbox (PA-12) e delegação ao GitHub Actions (Opção B) ficam como evolução.
+  </footer>
+</main>
+</body>
+</html>
