@@ -40,6 +40,7 @@ export default function RepositoryQualityGateConfigPage() {
       const updated = await updateCoverageExecutionConfig(repository.id, {
         language: coverageExecutionConfig.language,
         install_command: coverageExecutionConfig.install_command,
+        working_directory: coverageExecutionConfig.working_directory,
         test_command: coverageExecutionConfig.test_command,
         report_path: coverageExecutionConfig.report_path,
         report_format: coverageExecutionConfig.report_format
@@ -122,6 +123,18 @@ export default function RepositoryQualityGateConfigPage() {
                 <option value="javascript">javascript</option>
                 <option value="go">go</option>
               </select>
+            </label>
+            <label>
+              Working directory
+              <input
+                value={coverageExecutionConfig.working_directory}
+                onChange={(event) =>
+                  setCoverageExecutionConfig({
+                    ...coverageExecutionConfig,
+                    working_directory: event.target.value
+                  })
+                }
+              />
             </label>
             <label>
               Install command

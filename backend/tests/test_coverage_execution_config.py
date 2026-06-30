@@ -9,6 +9,7 @@ def test_synced_repository_has_default_coverage_execution_config(
     config = config_response.json()
     assert config["repository_id"] == repository["id"]
     assert config["language"] == "python"
+    assert config["working_directory"] == "."
     assert config["install_command"] == "pip install -r requirements.txt"
     assert config["test_command"] == "pytest --cov=. --cov-report=xml:coverage.xml"
     assert config["report_path"] == "coverage.xml"
@@ -54,6 +55,19 @@ def test_update_coverage_execution_config_allows_blank_install_command(
 
     assert response.status_code == 200
     assert response.json()["install_command"] == ""
+
+
+def test_update_coverage_execution_config_accepts_working_directory(
+    client, repository
+):
+    response = client.put(
+        f"/api/repositories/{repository['id']}/coverage-execution-config",
+        headers={"X-CSRF-Token": repository["csrf_token"]},
+        json={"working_directory": "docker-log-watcher-agent"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["working_directory"] == "docker-log-watcher-agent"
 
 
 def test_update_coverage_execution_config_rejects_empty_test_command(

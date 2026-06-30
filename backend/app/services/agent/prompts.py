@@ -68,6 +68,7 @@ def build_ai_review_input(run: AnalysisRun) -> dict:
         },
         "coverage_execution_config": {
             "language": coverage_config.language.value,
+            "working_directory": coverage_config.working_directory,
             "report_format": coverage_config.report_format.value,
         },
     }

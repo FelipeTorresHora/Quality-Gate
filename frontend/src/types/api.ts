@@ -141,6 +141,7 @@ export type CoverageExecutionConfig = {
   repository_id: string;
   language: "python" | "typescript" | "javascript" | "go";
   install_command: string;
+  working_directory: string;
   test_command: string;
   report_path: string;
   report_format: "cobertura_xml" | "lcov" | "go_coverprofile";

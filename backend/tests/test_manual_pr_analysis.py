@@ -1,4 +1,5 @@
 from uuid import UUID
+from types import SimpleNamespace
 
 from app.models.analysis_run import AnalysisRun
 from app.models.enums import AnalysisTriggerSource
@@ -64,3 +65,116 @@ def test_manual_analyze_creates_and_executes_real_run(
         response.json()["trigger_source"]
         == AnalysisTriggerSource.MANUAL.value
     )
+
+
+def test_manual_analyze_uses_coverage_working_directory_for_nested_project(
+    monkeypatch,
+    client,
+    repository,
+    db_session,
+    tmp_path,
+):
+    from app.models.coverage_execution_config import CoverageExecutionConfig
+    from app.models.quality_gate_config import QualityGateConfig
+    from app.services.gates import coverage_gate
+
+    coverage_config = db_session.query(CoverageExecutionConfig).filter_by(
+        repository_id=repository["id"]
+    ).one()
+    coverage_config.working_directory = "docker-log-watcher-agent"
+    quality_config = db_session.query(QualityGateConfig).filter_by(
+        repository_id=repository["id"]
+    ).one()
+    quality_config.min_changed_files_coverage = 0
+    quality_config.security_enabled = False
+    quality_config.technical_debt_enabled = False
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.services.github_service.get_repository_pull_request_context",
+        lambda db, repository_id, pr_number: {
+            "pull_request": {
+                "number": pr_number,
+                "title": "Exercise nested project analysis",
+                "body": None,
+                "state": "open",
+                "draft": False,
+                "author_login": "octocat",
+                "html_url": (
+                    "https://github.com/octo-org/quality-api/pull/1"
+                ),
+                "base_ref": "main",
+                "head_ref": "feature",
+                "head_sha": "head-sha",
+                "base_sha": "base-sha",
+                "created_at": "2026-06-30T00:00:00Z",
+                "updated_at": "2026-06-30T00:00:00Z",
+            },
+            "changed_files": [
+                {
+                    "filename": "docker-log-watcher-agent/main.py",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 0,
+                    "changes": 1,
+                    "patch": "@@ -1 +1 @@\n+print('ok')",
+                }
+            ],
+            "diff_snapshot": (
+                "diff --git a/docker-log-watcher-agent/main.py "
+                "b/docker-log-watcher-agent/main.py"
+            ),
+            "diff_truncated": False,
+        },
+    )
+
+    class FakeRunnerWorkspace:
+        def __init__(self, analysis_run_id, repository_url):
+            self.repo_path = tmp_path / "repo"
+            self.command_metadata = []
+
+        def __enter__(self):
+            (self.repo_path / "docker-log-watcher-agent").mkdir(parents=True)
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def checkout(self, revision):
+            return None
+
+        def run(self, command, working_directory="."):
+            report = self.repo_path / working_directory / "coverage.xml"
+            report.write_text(
+                """<?xml version="1.0" ?>
+<coverage>
+  <packages>
+    <package>
+      <classes>
+        <class filename="main.py">
+          <lines>
+            <line number="1" hits="1"/>
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>
+""",
+                encoding="utf-8",
+            )
+            return SimpleNamespace(timed_out=False, exit_code=0)
+
+    monkeypatch.setattr(coverage_gate, "RunnerWorkspace", FakeRunnerWorkspace)
+
+    response = client.post(
+        f"/api/repositories/{repository['id']}/pull-requests/1/analyze",
+        headers={"X-CSRF-Token": repository["csrf_token"]},
+    )
+
+    assert response.status_code == 200
+    run = response.json()
+    assert run["status"] == "completed"
+    assert run["decision"] == "pass"
+    assert run["coverage_result_json"]["status"] == "pass"
+    assert run["error_message"] is None

@@ -1,4 +1,6 @@
 from pathlib import Path
+from types import SimpleNamespace
+from uuid import uuid4
 
 from app.models.enums import FindingCategory
 
@@ -143,3 +145,89 @@ def test_coverage_policy_creates_blocking_findings():
         FindingCategory.COVERAGE,
     ]
     assert all(finding.blocking for finding in findings)
+
+
+def test_coverage_gate_runs_commands_in_configured_working_directory(
+    monkeypatch, tmp_path
+):
+    from app.services.gates import coverage_gate
+
+    commands = []
+
+    class FakeRunnerWorkspace:
+        def __init__(self, analysis_run_id, repository_url):
+            self.repo_path = tmp_path / "repo"
+            self.command_metadata = []
+
+        def __enter__(self):
+            (self.repo_path / "docker-log-watcher-agent").mkdir(parents=True)
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def checkout(self, revision):
+            commands.append(("checkout", revision, "."))
+
+        def run(self, command, working_directory="."):
+            commands.append(("run", command, working_directory))
+            report = self.repo_path / working_directory / "coverage.xml"
+            report.write_text(
+                """<?xml version="1.0" ?>
+<coverage>
+  <packages>
+    <package>
+      <classes>
+        <class filename="main.py">
+          <lines>
+            <line number="1" hits="1"/>
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>
+""",
+                encoding="utf-8",
+            )
+            return SimpleNamespace(timed_out=False, exit_code=0)
+
+    monkeypatch.setattr(coverage_gate, "RunnerWorkspace", FakeRunnerWorkspace)
+
+    result = coverage_gate.run_coverage_gate(
+        analysis_run=SimpleNamespace(
+            id=uuid4(),
+            head_sha="head-sha",
+            pull_request_snapshot_json={"base_sha": "base-sha"},
+            changed_files_snapshot_json=[
+                {"filename": "docker-log-watcher-agent/main.py"}
+            ],
+        ),
+        repository=SimpleNamespace(owner="FelipeTorresHora", name="nested-repo"),
+        quality_config=SimpleNamespace(
+            min_total_coverage=0,
+            max_coverage_drop=100,
+            min_changed_files_coverage=0,
+        ),
+        coverage_config=SimpleNamespace(
+            language=SimpleNamespace(value="python"),
+            install_command="pip install -r requirements.txt",
+            test_command="pytest --cov=. --cov-report=xml:coverage.xml",
+            report_path="coverage.xml",
+            report_format=SimpleNamespace(value="cobertura_xml"),
+            working_directory="docker-log-watcher-agent",
+        ),
+        repository_token="token",
+    )
+
+    assert result.snapshot["status"] == "pass"
+    assert (
+        "run",
+        "pip install -r requirements.txt",
+        "docker-log-watcher-agent",
+    ) in commands
+    assert (
+        "run",
+        "pytest --cov=. --cov-report=xml:coverage.xml",
+        "docker-log-watcher-agent",
+    ) in commands
