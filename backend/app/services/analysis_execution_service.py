@@ -1,9 +1,11 @@
+import time
 from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import get_settings
 from app.core.errors import AppError
 from app.models.analysis_finding import AnalysisFinding
 from app.models.analysis_run import AnalysisRun
@@ -50,7 +52,11 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     db.execute(delete(AnalysisFinding).where(AnalysisFinding.analysis_run_id == run.id))
     db.commit()
 
+    deadline = time.monotonic() + get_settings().analysis_total_timeout_seconds
     gate_results: list[GateResult] = []
+
+    if time.monotonic() > deadline:
+        return _finish_with_error(db, run, "Analysis exceeded total time budget.")
 
     if run.repository.quality_gate_config.coverage_enabled:
         coverage = coverage_gate.run_coverage_gate(
@@ -69,6 +75,9 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     if coverage.status == "error":
         return _finish_with_error(db, run, coverage.error_message)
 
+    if time.monotonic() > deadline:
+        return _finish_with_error(db, run, "Analysis exceeded total time budget.")
+
     if run.repository.quality_gate_config.security_enabled:
         security = security_gate.run_security_gate(
             analysis_run=run,
@@ -85,6 +94,9 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     db.commit()
     if security.status == "error":
         return _finish_with_error(db, run, security.error_message)
+
+    if time.monotonic() > deadline:
+        return _finish_with_error(db, run, "Analysis exceeded total time budget.")
 
     if run.repository.quality_gate_config.technical_debt_enabled:
         technical_debt = technical_debt_gate.run_technical_debt_gate(

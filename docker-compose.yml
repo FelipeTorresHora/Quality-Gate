@@ -5,7 +5,7 @@ services:
     command: >
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host ${API_HOST:-0.0.0.0} --port ${API_PORT:-8000}"
-    environment:
+    environment: &backend-env
       APP_ENV: ${APP_ENV:-development}
       APP_NAME: ${APP_NAME:-PR Quality Gate Dashboard}
       API_HOST: ${API_HOST:-0.0.0.0}
@@ -34,6 +34,17 @@ services:
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-pr-quality-dashboard}
     ports:
       - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  worker:
+    build:
+      context: ./backend
+    command: ["python", "-m", "app.worker"]
+    environment: *backend-env
     depends_on:
       postgres:
         condition: service_healthy

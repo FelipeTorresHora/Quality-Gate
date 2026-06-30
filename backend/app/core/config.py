@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     langsmith_project: str = "pr-quality-dashboard"
     workdir: str = "/tmp/pr-quality-dashboard"
     command_timeout_seconds: int = 600
+    analysis_total_timeout_seconds: int = 900
     keep_workdir: bool = False
 
     model_config = SettingsConfigDict(extra="ignore")

@@ -95,6 +95,31 @@ def test_execute_rejects_non_pending_run(repository):
     assert exc_info.value.code == "analysis_run_not_pending"
 
 
+def test_execute_aborts_when_total_time_budget_exceeded(repository, monkeypatch):
+    run_id = _create_run(repository)
+
+    from types import SimpleNamespace
+
+    from app.services import analysis_execution_service
+    from app.services.gates import coverage_gate
+
+    monkeypatch.setattr(
+        analysis_execution_service,
+        "get_settings",
+        lambda: SimpleNamespace(analysis_total_timeout_seconds=-1),
+    )
+
+    def gate_should_not_run(**kwargs):
+        raise AssertionError("gate must not run past the time budget")
+
+    monkeypatch.setattr(coverage_gate, "run_coverage_gate", gate_should_not_run)
+
+    run = _execute(run_id)
+
+    assert run["status"] == "error"
+    assert "time budget" in run["error_message"].lower()
+
+
 def test_execute_pending_run_completes_with_pass(repository, monkeypatch):
     run_id = _create_run(repository)
 
