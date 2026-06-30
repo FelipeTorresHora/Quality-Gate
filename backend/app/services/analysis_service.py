@@ -54,78 +54,24 @@ def get_analysis_run_by_pr_head(
     )
 
 
-def create_or_reuse_webhook_analysis_run(
-    db: Session, repository_id: UUID, context: PullRequestContextRead | dict
-) -> AnalysisRun:
-    context_model = _coerce_context(context)
-    pull_request = context_model.pull_request.model_dump(mode="json")
-    changed_files = [
-        changed_file.model_dump(mode="json")
-        for changed_file in context_model.changed_files
-    ]
-    existing = get_analysis_run_by_pr_head(
-        db,
-        repository_id,
-        context_model.pull_request.number,
-        context_model.pull_request.head_sha,
-    )
-    if existing is not None:
-        return get_analysis_run(db, existing.id)
-
-    run = AnalysisRun(
-        repository_id=repository_id,
-        pr_number=context_model.pull_request.number,
-        head_sha=context_model.pull_request.head_sha,
-        status=AnalysisRunStatus.PENDING,
-        decision=None,
-        trigger_source=AnalysisTriggerSource.GITHUB_WEBHOOK,
-        score=None,
-        coverage_result_json={},
-        security_result_json={},
-        technical_debt_result_json={},
-        ai_review_json={},
-        pull_request_snapshot_json=pull_request,
-        changed_files_snapshot_json=changed_files,
-        diff_snapshot=context_model.diff_snapshot,
-        diff_truncated=context_model.diff_truncated,
-        final_report_markdown=None,
-        error_message=None,
-        started_at=None,
-        finished_at=None,
-    )
-    return _commit_new_run_or_reuse(db, run)
-
-
-def create_or_reuse_manual_analysis_run(
-    db: Session,
+def _build_pending_run(
     repository_id: UUID,
-    context: PullRequestContextRead | dict,
+    context_model: PullRequestContextRead,
+    trigger_source: AnalysisTriggerSource,
 ) -> AnalysisRun:
-    context_model = _coerce_context(context)
-    existing = get_analysis_run_by_pr_head(
-        db,
-        repository_id,
-        context_model.pull_request.number,
-        context_model.pull_request.head_sha,
-    )
-    if existing is not None:
-        return get_analysis_run(db, existing.id)
-
-    run = AnalysisRun(
+    return AnalysisRun(
         repository_id=repository_id,
         pr_number=context_model.pull_request.number,
         head_sha=context_model.pull_request.head_sha,
         status=AnalysisRunStatus.PENDING,
         decision=None,
-        trigger_source=AnalysisTriggerSource.MANUAL,
+        trigger_source=trigger_source,
         score=None,
         coverage_result_json={},
         security_result_json={},
         technical_debt_result_json={},
         ai_review_json={},
-        pull_request_snapshot_json=context_model.pull_request.model_dump(
-            mode="json"
-        ),
+        pull_request_snapshot_json=context_model.pull_request.model_dump(mode="json"),
         changed_files_snapshot_json=[
             changed_file.model_dump(mode="json")
             for changed_file in context_model.changed_files
@@ -137,7 +83,49 @@ def create_or_reuse_manual_analysis_run(
         started_at=None,
         finished_at=None,
     )
-    return _commit_new_run_or_reuse(db, run)
+
+
+def _create_or_reuse(
+    db: Session,
+    repository_id: UUID,
+    context_model: PullRequestContextRead,
+    trigger_source: AnalysisTriggerSource,
+) -> AnalysisRun:
+    existing = get_analysis_run_by_pr_head(
+        db,
+        repository_id,
+        context_model.pull_request.number,
+        context_model.pull_request.head_sha,
+    )
+    if existing is not None:
+        return get_analysis_run(db, existing.id)
+    return _commit_new_run_or_reuse(
+        db, _build_pending_run(repository_id, context_model, trigger_source)
+    )
+
+
+def create_or_reuse_webhook_analysis_run(
+    db: Session, repository_id: UUID, context: PullRequestContextRead | dict
+) -> AnalysisRun:
+    return _create_or_reuse(
+        db,
+        repository_id,
+        _coerce_context(context),
+        AnalysisTriggerSource.GITHUB_WEBHOOK,
+    )
+
+
+def create_or_reuse_manual_analysis_run(
+    db: Session,
+    repository_id: UUID,
+    context: PullRequestContextRead | dict,
+) -> AnalysisRun:
+    return _create_or_reuse(
+        db,
+        repository_id,
+        _coerce_context(context),
+        AnalysisTriggerSource.MANUAL,
+    )
 
 
 def create_or_reuse_error_webhook_analysis_run(

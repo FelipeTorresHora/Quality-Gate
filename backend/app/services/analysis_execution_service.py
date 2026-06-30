@@ -1,5 +1,5 @@
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -18,9 +18,20 @@ from app.services import report_service
 from app.services import github_app_auth_service, github_installation_service
 
 
+STALE_RUNNING_AFTER = timedelta(minutes=30)
+
+
 def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     run = _get_run_for_execution(db, analysis_run_id)
-    if run.status not in (AnalysisRunStatus.PENDING, AnalysisRunStatus.ERROR):
+    is_stale_running = (
+        run.status == AnalysisRunStatus.RUNNING
+        and run.started_at is not None
+        and datetime.now(UTC) - run.started_at > STALE_RUNNING_AFTER
+    )
+    if (
+        run.status not in (AnalysisRunStatus.PENDING, AnalysisRunStatus.ERROR)
+        and not is_stale_running
+    ):
         raise AppError(
             409,
             "analysis_run_not_pending",
@@ -52,6 +63,18 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     db.execute(delete(AnalysisFinding).where(AnalysisFinding.analysis_run_id == run.id))
     db.commit()
 
+    try:
+        return _run_pipeline(db, run, repository_token)
+    except AppError:
+        raise
+    except Exception as exc:
+        db.rollback()
+        return _finish_with_error(db, run, f"Unexpected analysis failure: {exc}")
+
+
+def _run_pipeline(
+    db: Session, run: AnalysisRun, repository_token: str | None
+) -> AnalysisRun:
     deadline = time.monotonic() + get_settings().analysis_total_timeout_seconds
     gate_results: list[GateResult] = []
 

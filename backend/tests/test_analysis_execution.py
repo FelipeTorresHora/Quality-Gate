@@ -14,6 +14,7 @@ def _create_run(
     *,
     diff_snapshot="diff --git",
     status=AnalysisRunStatus.PENDING,
+    started_at=None,
 ):
     with SessionLocal() as db:
         run = AnalysisRun(
@@ -21,6 +22,7 @@ def _create_run(
             pr_number=42,
             head_sha="head123",
             status=status,
+            started_at=started_at,
             trigger_source=AnalysisTriggerSource.GITHUB_WEBHOOK,
             pull_request_snapshot_json={
                 "number": 42,
@@ -93,6 +95,70 @@ def test_execute_rejects_non_pending_run(repository):
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.code == "analysis_run_not_pending"
+
+
+def test_execute_marks_error_on_unexpected_exception(repository, monkeypatch):
+    run_id = _create_run(repository)
+
+    from app.services.gates import coverage_gate
+
+    def boom(**kwargs):
+        raise RuntimeError("scanner crashed")
+
+    monkeypatch.setattr(coverage_gate, "run_coverage_gate", boom)
+
+    run = _execute(run_id)
+
+    assert run["status"] == "error"
+    assert "Unexpected analysis failure" in run["error_message"]
+    assert "scanner crashed" in run["error_message"]
+
+
+def test_execute_reruns_stale_running_run(repository, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    run_id = _create_run(
+        repository,
+        status=AnalysisRunStatus.RUNNING,
+        started_at=datetime.now(UTC) - timedelta(minutes=31),
+    )
+
+    from app.services.gates import coverage_gate, security_gate, technical_debt_gate
+
+    monkeypatch.setattr(
+        coverage_gate,
+        "run_coverage_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.COVERAGE),
+    )
+    monkeypatch.setattr(
+        security_gate,
+        "run_security_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.SECURITY),
+    )
+    monkeypatch.setattr(
+        technical_debt_gate,
+        "run_technical_debt_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.TECHNICAL_DEBT),
+    )
+
+    run = _execute(run_id)
+
+    assert run["status"] == "completed"
+
+
+def test_execute_rejects_fresh_running_run(repository):
+    from datetime import UTC, datetime
+
+    run_id = _create_run(
+        repository,
+        status=AnalysisRunStatus.RUNNING,
+        started_at=datetime.now(UTC),
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        _execute(run_id)
+
+    assert exc_info.value.status_code == 409
 
 
 def test_execute_aborts_when_total_time_budget_exceeded(repository, monkeypatch):

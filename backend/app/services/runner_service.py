@@ -155,10 +155,7 @@ def download_repository_archive(
     timeout_seconds: int | None = None,
 ) -> CommandResult:
     timeout = timeout_seconds or get_settings().command_timeout_seconds
-    archive_url = (
-        f"https://codeload.github.com/{repository.owner}/"
-        f"{repository.name}/tar.gz/{revision}"
-    )
+    archive_url = _archive_url(repository.owner, repository.name, revision)
     command = f"download GitHub archive {archive_url}"
     started = time.monotonic()
     archive_path: Path | None = None
@@ -168,7 +165,7 @@ def download_repository_archive(
             archive_url,
             headers=_github_archive_headers(repository.token),
         )
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _opener.open(request, timeout=timeout) as response:
             with tempfile.NamedTemporaryFile(
                 suffix=".tar.gz",
                 dir=root,
@@ -225,6 +222,21 @@ def download_repository_archive(
             archive_path.unlink(missing_ok=True)
         if extract_path is not None and extract_path.exists():
             shutil.rmtree(extract_path, ignore_errors=True)
+
+
+def _archive_url(owner: str, name: str, revision: str) -> str:
+    return f"https://api.github.com/repos/{owner}/{name}/tarball/{revision}"
+
+
+class _NoAuthOnRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None:
+            new.headers.pop("Authorization", None)
+        return new
+
+
+_opener = urllib.request.build_opener(_NoAuthOnRedirect)
 
 
 def _github_archive_headers(token: str | None) -> dict[str, str]:

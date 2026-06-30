@@ -99,16 +99,15 @@ def test_download_repository_archive_extracts_checkout_without_git(monkeypatch, 
     )
     seen = {}
 
-    def fake_urlopen(request, timeout):
+    def fake_open(request, timeout):
         seen["url"] = request.full_url
         seen["authorization"] = request.headers["Authorization"]
         seen["timeout"] = timeout
         return io.BytesIO(archive_payload)
 
-    monkeypatch.setattr(
-        "app.services.runner_service.urllib.request.urlopen",
-        fake_urlopen,
-    )
+    from app.services import runner_service
+
+    monkeypatch.setattr(runner_service._opener, "open", fake_open)
 
     result = download_repository_archive(
         RepositoryRef(
@@ -124,7 +123,7 @@ def test_download_repository_archive_extracts_checkout_without_git(monkeypatch, 
 
     assert result.exit_code == 0
     assert seen == {
-        "url": "https://codeload.github.com/octo-org/quality-api/tar.gz/head123",
+        "url": "https://api.github.com/repos/octo-org/quality-api/tarball/head123",
         "authorization": "Bearer installation-token",
         "timeout": 30,
     }
