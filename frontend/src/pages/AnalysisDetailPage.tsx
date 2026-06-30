@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import {
+  executeAnalysisRun,
   getAnalysisRun,
   getQualityGateConfig,
   publishAnalysisRunToGitHub
@@ -25,8 +26,10 @@ export default function AnalysisDetailPage() {
   const [publicationResult, setPublicationResult] =
     useState<GitHubPublicationResult | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [publishError, setPublishError] = useState<unknown>(null);
+  const [retryError, setRetryError] = useState<unknown>(null);
 
   useEffect(() => {
     if (!analysisRunId) {
@@ -66,6 +69,19 @@ export default function AnalysisDetailPage() {
     Boolean(qualityConfig?.comment_on_github) ||
     Boolean(qualityConfig?.publish_github_status);
 
+  async function handleRetry() {
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      const updated = await executeAnalysisRun(runId);
+      setRun(updated);
+    } catch (caught) {
+      setRetryError(caught);
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   async function handlePublish() {
     setPublishing(true);
     setPublishError(null);
@@ -87,6 +103,16 @@ export default function AnalysisDetailPage() {
           <h1>PR #{run.pr_number}</h1>
         </div>
         <div className="header-actions">
+          {run.status === "error" && (
+            <button
+              className="button primary"
+              disabled={retrying}
+              onClick={handleRetry}
+              type="button"
+            >
+              {retrying ? "Re-running" : "Re-run Analysis"}
+            </button>
+          )}
           {canPublish && (
             <button
               className="button primary"
@@ -170,6 +196,7 @@ export default function AnalysisDetailPage() {
           GitHub publication is disabled for this repository.
         </div>
       )}
+      {retryError ? <ErrorMessage error={retryError} /> : null}
       {publishError ? <ErrorMessage error={publishError} /> : null}
       {publicationResult && <PublicationResultPanel result={publicationResult} />}
 
