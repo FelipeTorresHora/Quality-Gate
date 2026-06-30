@@ -36,19 +36,18 @@ def run_coverage_gate(
             error_message="Pull Request base and head revisions are required.",
         )
 
-    command_metadata: list[dict] = []
+    workspace = RunnerWorkspace(
+        analysis_run.id,
+        repository_clone_url(
+            repository.owner,
+            repository.name,
+            repository_token,
+        ),
+    )
     try:
-        with RunnerWorkspace(
-            analysis_run.id,
-            repository_clone_url(
-                repository.owner,
-                repository.name,
-                repository_token,
-            ),
-        ) as workspace:
+        with workspace:
             base_report = _run_revision_coverage(workspace, base_sha, coverage_config)
             head_report = _run_revision_coverage(workspace, head_sha, coverage_config)
-            command_metadata = workspace.command_metadata
     except Exception as exc:
         return GateResult(
             snapshot={
@@ -58,7 +57,7 @@ def run_coverage_gate(
                 "base_sha": base_sha,
                 "head_sha": head_sha,
                 "blocking_reasons": [str(exc)],
-                "commands": command_metadata,
+                "commands": workspace.command_metadata,
             },
             error_message=str(exc),
         )
@@ -82,7 +81,7 @@ def run_coverage_gate(
             "max_coverage_drop": quality_config.max_coverage_drop,
             "min_changed_files_coverage": quality_config.min_changed_files_coverage,
         },
-        command_metadata=command_metadata,
+        command_metadata=workspace.command_metadata,
     )
     return GateResult(snapshot=snapshot, findings=findings)
 

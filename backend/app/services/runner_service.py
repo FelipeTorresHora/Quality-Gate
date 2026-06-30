@@ -4,7 +4,12 @@ import os
 import re
 import shutil
 import subprocess
+import tarfile
+import tempfile
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
@@ -47,6 +52,7 @@ class RunnerWorkspace:
         self.root = Path(settings.workdir) / str(analysis_run_id)
         self.repo_path = self.root / "repo"
         self.repository_url = repository_url
+        self.repository_ref = parse_repository_url(repository_url)
         self.command_timeout_seconds = settings.command_timeout_seconds
         self.keep_workdir = settings.keep_workdir
         self.command_metadata: list[dict] = []
@@ -55,14 +61,6 @@ class RunnerWorkspace:
         if self.root.exists():
             shutil.rmtree(self.root)
         self.root.mkdir(parents=True, exist_ok=True)
-        result = run_command(
-            f"git clone {self.repository_url} repo",
-            self.root,
-            timeout_seconds=self.command_timeout_seconds,
-        )
-        self.command_metadata.append(result.to_snapshot())
-        if result.exit_code != 0 or result.timed_out:
-            raise RunnerError("Repository clone failed.", result)
         return self
 
     def __exit__(self, exc_type, exc, traceback) -> None:
@@ -70,9 +68,11 @@ class RunnerWorkspace:
             shutil.rmtree(self.root, ignore_errors=True)
 
     def checkout(self, revision: str) -> None:
-        result = run_command(
-            f"git checkout {revision}",
+        result = download_repository_archive(
+            self.repository_ref,
+            revision,
             self.repo_path,
+            self.root,
             timeout_seconds=self.command_timeout_seconds,
         )
         self.command_metadata.append(result.to_snapshot())
@@ -106,6 +106,13 @@ class RunnerError(Exception):
         self.result = result
 
 
+@dataclass(frozen=True)
+class RepositoryRef:
+    owner: str
+    name: str
+    token: str | None = None
+
+
 def repository_clone_url(
     owner: str,
     name: str,
@@ -114,6 +121,121 @@ def repository_clone_url(
     if token:
         return f"https://x-access-token:{token}@github.com/{owner}/{name}.git"
     return f"https://github.com/{owner}/{name}.git"
+
+
+def parse_repository_url(repository_url: str) -> RepositoryRef:
+    parsed = urllib.parse.urlparse(repository_url)
+    if parsed.hostname != "github.com":
+        raise RunnerError("Only GitHub repository URLs are supported.")
+    path = parsed.path.strip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    parts = path.split("/")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise RunnerError("GitHub repository URL is invalid.")
+    token = None
+    if parsed.username == "x-access-token" and parsed.password:
+        token = urllib.parse.unquote(parsed.password)
+    return RepositoryRef(owner=parts[0], name=parts[1], token=token)
+
+
+def download_repository_archive(
+    repository: RepositoryRef,
+    revision: str,
+    repo_path: Path,
+    root: Path,
+    *,
+    timeout_seconds: int | None = None,
+) -> CommandResult:
+    timeout = timeout_seconds or get_settings().command_timeout_seconds
+    archive_url = (
+        f"https://codeload.github.com/{repository.owner}/"
+        f"{repository.name}/tar.gz/{revision}"
+    )
+    command = f"download GitHub archive {archive_url}"
+    started = time.monotonic()
+    archive_path: Path | None = None
+    extract_path: Path | None = None
+    try:
+        request = urllib.request.Request(
+            archive_url,
+            headers=_github_archive_headers(repository.token),
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            with tempfile.NamedTemporaryFile(
+                suffix=".tar.gz",
+                dir=root,
+                delete=False,
+            ) as archive_file:
+                archive_path = Path(archive_file.name)
+                shutil.copyfileobj(response, archive_file)
+
+        extract_path = root / "extract"
+        if extract_path.exists():
+            shutil.rmtree(extract_path)
+        extract_path.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(archive_path, "r:gz") as archive:
+            _validate_archive_members(archive, extract_path)
+            archive.extractall(extract_path, filter="data")
+
+        children = list(extract_path.iterdir())
+        if len(children) != 1 or not children[0].is_dir():
+            raise RunnerError("GitHub archive layout was not recognized.")
+        if repo_path.exists():
+            shutil.rmtree(repo_path)
+        shutil.move(str(children[0]), repo_path)
+        return CommandResult(
+            command=command,
+            exit_code=0,
+            stdout="GitHub archive downloaded and extracted.",
+            stderr="",
+            duration_seconds=time.monotonic() - started,
+        )
+    except urllib.error.HTTPError as exc:
+        return CommandResult(
+            command=command,
+            exit_code=1,
+            stdout="",
+            stderr=f"GitHub archive download failed with HTTP {exc.code}: {exc.reason}",
+            duration_seconds=time.monotonic() - started,
+        )
+    except (
+        OSError,
+        tarfile.TarError,
+        urllib.error.URLError,
+        TimeoutError,
+        RunnerError,
+    ) as exc:
+        return CommandResult(
+            command=command,
+            exit_code=1,
+            stdout="",
+            stderr=str(exc),
+            duration_seconds=time.monotonic() - started,
+        )
+    finally:
+        if archive_path is not None:
+            archive_path.unlink(missing_ok=True)
+        if extract_path is not None and extract_path.exists():
+            shutil.rmtree(extract_path, ignore_errors=True)
+
+
+def _github_archive_headers(token: str | None) -> dict[str, str]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "quality-gate-runner",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _validate_archive_members(archive: tarfile.TarFile, extract_path: Path) -> None:
+    extract_root = extract_path.resolve()
+    for member in archive.getmembers():
+        target = (extract_root / member.name).resolve()
+        if not target.is_relative_to(extract_root):
+            raise RunnerError("GitHub archive contains an unsafe path.")
 
 
 def redacted_command(command: str) -> str:
