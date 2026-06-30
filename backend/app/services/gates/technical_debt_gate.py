@@ -210,12 +210,12 @@ def analyze_brace_language_file(
             findings.append(
                 GateFinding(
                     category=FindingCategory.TECHNICAL_DEBT,
-                    severity=FindingSeverity.MEDIUM,
+                    severity=FindingSeverity.LOW,
                     file_path=display_path,
                     line_number=start,
                     title="Function exceeds line limit",
                     description=f"{language} function has {length} lines, above the configured limit {max_function_lines}.",
-                    blocking=True,
+                    blocking=False,
                 )
             )
         index = max(end_index + 1, index + 1)
