@@ -44,6 +44,19 @@ export default function AnalysisDetailPage() {
       .catch(setError);
   }, [analysisRunId]);
 
+  useEffect(() => {
+    if (!analysisRunId || !run) {
+      return;
+    }
+    if (run.status !== "pending" && run.status !== "running") {
+      return;
+    }
+    const timer = setTimeout(() => {
+      getAnalysisRun(analysisRunId).then(setRun).catch(setError);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [analysisRunId, run]);
+
   if (error) {
     return (
       <div className="page-stack">

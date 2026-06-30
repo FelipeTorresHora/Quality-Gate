@@ -93,6 +93,25 @@ def test_get_analysis_run_detail(client, repository):
     assert run["findings"][0]["category"] == "coverage"
 
 
+def test_admin_execute_enqueues_run_and_returns_accepted(
+    client, repository, monkeypatch
+):
+    run_id = _insert_run(repository["id"])
+    enqueued = []
+    monkeypatch.setattr(
+        "app.services.analysis_queue.enqueue",
+        lambda rid: enqueued.append(str(rid)),
+    )
+
+    response = client.post(
+        f"/api/analysis-runs/{run_id}/execute",
+        headers={"X-CSRF-Token": repository["csrf_token"]},
+    )
+
+    assert response.status_code == 202
+    assert enqueued == [run_id]
+
+
 def test_non_admin_cannot_execute_or_publish_analysis(
     client,
     reset_database,

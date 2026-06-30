@@ -4,7 +4,6 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import BackgroundTasks
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,7 +13,7 @@ from app.models.enums import AnalysisRunStatus
 from app.models.user import User
 from app.schemas.github import GitHubWebhookResult, PullRequestContextRead
 from app.services import (
-    analysis_execution_service,
+    analysis_queue,
     analysis_service,
     github_installation_service,
     github_service,
@@ -34,7 +33,6 @@ def process_github_webhook(
     body: bytes,
     event: str | None,
     signature_header: str | None,
-    background_tasks: BackgroundTasks | None = None,
 ) -> GitHubWebhookResult:
     settings = get_settings()
     secret = settings.github_webhook_secret
@@ -106,10 +104,7 @@ def process_github_webhook(
         )
 
     if created_new:
-        if background_tasks is not None:
-            background_tasks.add_task(_execute_run_by_id, run.id)
-        else:
-            analysis_execution_service.execute_analysis_run(db, run.id)
+        analysis_queue.enqueue(run.id)
 
     return GitHubWebhookResult(
         ignored=False,
@@ -177,16 +172,6 @@ def _find_webhook_user(db: Session, payload: dict[str, Any]) -> User | None:
     return db.scalar(
         select(User).where(User.github_user_id == int(sender_id))
     )
-
-
-def _execute_run_by_id(analysis_run_id):
-    from app.db.session import SessionLocal
-
-    db = SessionLocal()
-    try:
-        analysis_execution_service.execute_analysis_run(db, analysis_run_id)
-    finally:
-        db.close()
 
 
 def _has_valid_signature(

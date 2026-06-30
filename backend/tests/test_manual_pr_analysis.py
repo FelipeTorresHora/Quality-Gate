@@ -15,7 +15,7 @@ def test_manual_analyze_requires_repository_access(client):
     assert response.status_code == 401
 
 
-def test_manual_analyze_creates_and_executes_real_run(
+def test_manual_analyze_enqueues_pending_run(
     monkeypatch,
     client,
     reset_database,
@@ -49,9 +49,10 @@ def test_manual_analyze_creates_and_executes_real_run(
             "diff_truncated": False,
         },
     )
+    enqueued = []
     monkeypatch.setattr(
-        "app.services.analysis_execution_service.execute_analysis_run",
-        lambda db, analysis_run_id: db.get(AnalysisRun, analysis_run_id),
+        "app.services.analysis_queue.enqueue",
+        lambda run_id: enqueued.append(str(run_id)),
     )
 
     response = client.post(
@@ -60,11 +61,11 @@ def test_manual_analyze_creates_and_executes_real_run(
         headers={"X-CSRF-Token": csrf_token},
     )
 
-    assert response.status_code == 200
-    assert (
-        response.json()["trigger_source"]
-        == AnalysisTriggerSource.MANUAL.value
-    )
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "pending"
+    assert body["trigger_source"] == AnalysisTriggerSource.MANUAL.value
+    assert enqueued == [body["id"]]
 
 
 def test_manual_analyze_uses_coverage_working_directory_for_nested_project(
@@ -172,9 +173,15 @@ def test_manual_analyze_uses_coverage_working_directory_for_nested_project(
         headers={"X-CSRF-Token": repository["csrf_token"]},
     )
 
-    assert response.status_code == 200
-    run = response.json()
-    assert run["status"] == "completed"
-    assert run["decision"] == "pass"
-    assert run["coverage_result_json"]["status"] == "pass"
-    assert run["error_message"] is None
+    assert response.status_code == 202
+    run_id = UUID(response.json()["id"])
+    assert response.json()["status"] == "pending"
+
+    from app.services import analysis_execution_service
+
+    executed = analysis_execution_service.execute_analysis_run(db_session, run_id)
+
+    assert executed.status.value == "completed"
+    assert executed.decision.value == "pass"
+    assert executed.coverage_result_json["status"] == "pass"
+    assert executed.error_message is None
