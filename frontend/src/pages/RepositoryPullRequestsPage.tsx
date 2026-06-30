@@ -147,7 +147,7 @@ function PullRequestActions({
   pullRequest: GitHubPullRequest;
 }) {
   const run = pullRequest.review_state.analysis_run;
-  if (!run || pullRequest.review_state.state === "outdated") {
+  if (!run || pullRequest.review_state.state === "outdated" || run.status === "error") {
     return (
       <button
         className="button small primary"

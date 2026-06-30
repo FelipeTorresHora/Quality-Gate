@@ -18,11 +18,11 @@ from app.services import github_app_auth_service, github_installation_service
 
 def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     run = _get_run_for_execution(db, analysis_run_id)
-    if run.status != AnalysisRunStatus.PENDING:
+    if run.status not in (AnalysisRunStatus.PENDING, AnalysisRunStatus.ERROR):
         raise AppError(
             409,
             "analysis_run_not_pending",
-            "Only pending analysis runs can be executed.",
+            "Only pending or errored analysis runs can be executed.",
         )
 
     installation_link = (
