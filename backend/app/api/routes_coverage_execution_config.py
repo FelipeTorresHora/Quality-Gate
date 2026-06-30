@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_csrf_token
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.coverage_execution_config import (
@@ -41,6 +41,7 @@ def get_coverage_execution_config(
 def update_coverage_execution_config(
     repository_id: UUID,
     payload: CoverageExecutionConfigUpdate,
+    _csrf: None = Depends(require_csrf_token),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

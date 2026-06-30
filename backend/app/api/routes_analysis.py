@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_csrf_token
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.analysis import (
@@ -54,6 +54,7 @@ def get_analysis_run(
 )
 def execute_analysis_run(
     analysis_run_id: UUID,
+    _csrf: None = Depends(require_csrf_token),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -68,6 +69,7 @@ def execute_analysis_run(
 )
 def publish_analysis_run_to_github(
     analysis_run_id: UUID,
+    _csrf: None = Depends(require_csrf_token),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

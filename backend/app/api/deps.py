@@ -22,3 +22,29 @@ def get_current_user(
             "Authentication is required.",
         )
     return user
+
+
+def require_csrf_token(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> None:
+    settings = get_settings()
+    session_cookie = request.cookies.get(settings.session_cookie_name)
+    if not session_cookie:
+        return
+    if session_service.get_active_session(db, session_cookie) is None:
+        return
+
+    csrf_header = request.headers.get("X-CSRF-Token")
+    csrf_cookie = request.cookies.get("qg_csrf")
+    if (
+        not csrf_header
+        or not csrf_cookie
+        or csrf_header != csrf_cookie
+        or not session_service.validate_csrf_token(db, session_cookie, csrf_header)
+    ):
+        raise AppError(
+            403,
+            "csrf_token_invalid",
+            "CSRF token is invalid or missing.",
+        )

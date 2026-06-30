@@ -9,10 +9,11 @@ from sqlalchemy.exc import OperationalError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-os.environ.setdefault(
-    "DATABASE_URL",
-    "postgresql+psycopg://pr_quality:pr_quality@localhost:5432/pr_quality_test",
+os.environ["DATABASE_URL"] = (
+    os.environ.get("TEST_DATABASE_URL")
+    or "postgresql+psycopg://pr_quality:pr_quality@localhost:55432/pr_quality_test"
 )
+os.environ.setdefault("PR_QUALITY_ENV_FILE", "")
 
 from app.db.base import Base  # noqa: E402
 from app.db.session import engine  # noqa: E402
@@ -84,7 +85,7 @@ def create_user_repo_access(db_session):
         )
         db_session.commit()
         created = session_service.create_session(db_session, user)
-        return user, repository, created.cookie_value
+        return user, repository, created.cookie_value, created.csrf_token
 
     return create
 
@@ -146,6 +147,7 @@ def repository(client, reset_database, db_session, monkeypatch):
     ).one()
     created = session_service.create_session(db_session, user)
     client.cookies.set("qg_session", created.cookie_value)
+    client.cookies.set("qg_csrf", created.csrf_token)
     monkeypatch.setattr(
         github_app_auth_service,
         "generate_installation_token",
@@ -158,4 +160,5 @@ def repository(client, reset_database, db_session, monkeypatch):
         "name": repository.name,
         "full_name": repository.full_name,
         "default_branch": repository.default_branch,
+        "csrf_token": created.csrf_token,
     }

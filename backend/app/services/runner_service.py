@@ -79,14 +79,24 @@ class RunnerWorkspace:
         if result.exit_code != 0 or result.timed_out:
             raise RunnerError(f"Repository checkout failed for {revision}.", result)
 
-    def run(self, command: str) -> CommandResult:
+    def run(self, command: str, working_directory: str = ".") -> CommandResult:
+        cwd = self._resolve_working_directory(working_directory)
         result = run_command(
             command,
-            self.repo_path,
+            cwd,
             timeout_seconds=self.command_timeout_seconds,
         )
         self.command_metadata.append(result.to_snapshot())
         return result
+
+    def _resolve_working_directory(self, working_directory: str) -> Path:
+        repo_root = self.repo_path.resolve()
+        cwd = (repo_root / working_directory).resolve()
+        if not cwd.is_relative_to(repo_root):
+            raise RunnerError("Working directory must stay inside the repository.")
+        if not cwd.exists() or not cwd.is_dir():
+            raise RunnerError(f"Working directory does not exist: {working_directory}.")
+        return cwd
 
 
 class RunnerError(Exception):

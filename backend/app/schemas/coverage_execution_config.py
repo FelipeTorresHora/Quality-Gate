@@ -18,6 +18,7 @@ EXPECTED_FORMAT_BY_LANGUAGE = {
 class CoverageExecutionConfigUpdate(BaseModel):
     language: CoverageLanguageValue | None = None
     install_command: str | None = None
+    working_directory: str | None = Field(default=None, min_length=1)
     test_command: str | None = Field(default=None, min_length=1)
     report_path: str | None = Field(default=None, min_length=1)
     report_format: CoverageReportFormatValue | None = None
@@ -26,6 +27,8 @@ class CoverageExecutionConfigUpdate(BaseModel):
     def validate_language_report_format(self) -> "CoverageExecutionConfigUpdate":
         if self.test_command is not None and not self.test_command.strip():
             raise ValueError("test_command must not be blank")
+        if self.working_directory is not None and not self.working_directory.strip():
+            raise ValueError("working_directory must not be blank")
         if self.report_path is not None and not self.report_path.strip():
             raise ValueError("report_path must not be blank")
         if self.language is not None and self.report_format is not None:
@@ -42,6 +45,7 @@ class CoverageExecutionConfigRead(BaseModel):
     repository_id: UUID
     language: CoverageLanguageValue
     install_command: str
+    working_directory: str
     test_command: str
     report_path: str
     report_format: CoverageReportFormatValue

@@ -36,6 +36,9 @@ class CoverageExecutionConfig(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     install_command: Mapped[str] = mapped_column(
         Text, nullable=False, default="pip install -r requirements.txt"
     )
+    working_directory: Mapped[str] = mapped_column(
+        Text, nullable=False, default="."
+    )
     test_command: Mapped[str] = mapped_column(
         Text, nullable=False, default="pytest --cov=. --cov-report=xml:coverage.xml"
     )

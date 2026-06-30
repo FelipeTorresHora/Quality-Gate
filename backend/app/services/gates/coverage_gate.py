@@ -214,13 +214,20 @@ def _run_revision_coverage(
     revision: str,
     coverage_config,
 ) -> CoverageReport:
+    working_directory = getattr(coverage_config, "working_directory", ".")
     workspace.checkout(revision)
     if coverage_config.install_command.strip():
-        install = workspace.run(coverage_config.install_command)
+        install = workspace.run(
+            coverage_config.install_command,
+            working_directory=working_directory,
+        )
         if install.timed_out or install.exit_code != 0:
             raise RunnerError("Coverage install command failed.", install)
-    test = workspace.run(coverage_config.test_command)
-    report_path = workspace.repo_path / coverage_config.report_path
+    test = workspace.run(
+        coverage_config.test_command,
+        working_directory=working_directory,
+    )
+    report_path = workspace.repo_path / working_directory / coverage_config.report_path
     if not report_path.exists():
         raise RunnerError("Coverage report was not produced.", test)
     return _parse_report(report_path, coverage_config.report_format.value)

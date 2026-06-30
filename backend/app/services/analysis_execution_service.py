@@ -52,13 +52,16 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
 
     gate_results: list[GateResult] = []
 
-    coverage = coverage_gate.run_coverage_gate(
-        analysis_run=run,
-        repository=run.repository,
-        quality_config=run.repository.quality_gate_config,
-        coverage_config=run.repository.coverage_execution_config,
-        repository_token=repository_token,
-    )
+    if run.repository.quality_gate_config.coverage_enabled:
+        coverage = coverage_gate.run_coverage_gate(
+            analysis_run=run,
+            repository=run.repository,
+            quality_config=run.repository.quality_gate_config,
+            coverage_config=run.repository.coverage_execution_config,
+            repository_token=repository_token,
+        )
+    else:
+        coverage = _skipped_gate("coverage_gate_disabled")
     run.coverage_result_json = coverage.snapshot
     _persist_findings(db, run, coverage.findings)
     gate_results.append(coverage)
@@ -66,13 +69,16 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     if coverage.status == "error":
         return _finish_with_error(db, run, coverage.error_message)
 
-    security = security_gate.run_security_gate(
-        analysis_run=run,
-        repository=run.repository,
-        quality_config=run.repository.quality_gate_config,
-        coverage_config=run.repository.coverage_execution_config,
-        repository_token=repository_token,
-    )
+    if run.repository.quality_gate_config.security_enabled:
+        security = security_gate.run_security_gate(
+            analysis_run=run,
+            repository=run.repository,
+            quality_config=run.repository.quality_gate_config,
+            coverage_config=run.repository.coverage_execution_config,
+            repository_token=repository_token,
+        )
+    else:
+        security = _skipped_gate("security_gate_disabled")
     run.security_result_json = security.snapshot
     _persist_findings(db, run, security.findings)
     gate_results.append(security)
@@ -80,13 +86,16 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     if security.status == "error":
         return _finish_with_error(db, run, security.error_message)
 
-    technical_debt = technical_debt_gate.run_technical_debt_gate(
-        analysis_run=run,
-        repository=run.repository,
-        quality_config=run.repository.quality_gate_config,
-        coverage_config=run.repository.coverage_execution_config,
-        repository_token=repository_token,
-    )
+    if run.repository.quality_gate_config.technical_debt_enabled:
+        technical_debt = technical_debt_gate.run_technical_debt_gate(
+            analysis_run=run,
+            repository=run.repository,
+            quality_config=run.repository.quality_gate_config,
+            coverage_config=run.repository.coverage_execution_config,
+            repository_token=repository_token,
+        )
+    else:
+        technical_debt = _skipped_gate("technical_debt_gate_disabled")
     run.technical_debt_result_json = technical_debt.snapshot
     _persist_findings(db, run, technical_debt.findings)
     gate_results.append(technical_debt)
@@ -151,6 +160,10 @@ def _persist_findings(
                 blocking=finding.blocking,
             )
         )
+
+
+def _skipped_gate(reason: str) -> GateResult:
+    return GateResult(snapshot={"status": "skipped", "reason": reason})
 
 
 def _finish_with_error(
