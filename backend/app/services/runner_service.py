@@ -16,14 +16,21 @@ from uuid import UUID
 
 from app.core.config import get_settings
 
-SECRET_ENV_PREFIXES = (
-    "GITHUB_",
-    "OPENAI_",
-    "LANGSMITH_",
+SAFE_ENV_ALLOWLIST = (
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "TZ",
+    "TMPDIR",
+    "SHELL",
+    "GOPATH",
+    "GOCACHE",
+    "GOMODCACHE",
+    "NODE_ENV",
+    "PYTHONUNBUFFERED",
+    "PYTHONDONTWRITEBYTECODE",
 )
-SECRET_ENV_NAMES = {
-    "DATABASE_URL",
-}
 
 
 @dataclass
@@ -39,8 +46,8 @@ class CommandResult:
         return {
             "command": redacted_command(self.command),
             "exit_code": self.exit_code,
-            "stdout": self.stdout[-4000:],
-            "stderr": self.stderr[-4000:],
+            "stdout": redact_secrets(self.stdout[-4000:]),
+            "stderr": redact_secrets(self.stderr[-4000:]),
             "duration_seconds": round(self.duration_seconds, 3),
             "timed_out": self.timed_out,
         }
@@ -246,6 +253,24 @@ def redacted_command(command: str) -> str:
     )
 
 
+_SECRET_PATTERNS = [
+    re.compile(r"x-access-token:[^@\s]+@"),
+    re.compile(r"\bghs_[A-Za-z0-9]{20,}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),
+    re.compile(r"\bgho_[A-Za-z0-9]{20,}\b"),
+    re.compile(
+        r"-----BEGIN[ A-Z]*PRIVATE KEY-----.*?-----END[ A-Z]*PRIVATE KEY-----",
+        re.S,
+    ),
+]
+
+
+def redact_secrets(text: str) -> str:
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub("***REDACTED***", text)
+    return text
+
+
 def run_command(
     command: str,
     cwd: str | Path,
@@ -285,11 +310,6 @@ def run_command(
 
 
 def _safe_env() -> dict[str, str]:
-    safe: dict[str, str] = {}
-    for key, value in os.environ.items():
-        if key in SECRET_ENV_NAMES:
-            continue
-        if any(key.startswith(prefix) for prefix in SECRET_ENV_PREFIXES):
-            continue
-        safe[key] = value
+    safe = {key: os.environ[key] for key in SAFE_ENV_ALLOWLIST if key in os.environ}
+    safe.setdefault("PATH", "/usr/local/bin:/usr/bin:/bin")
     return safe
