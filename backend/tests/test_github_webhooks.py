@@ -274,10 +274,10 @@ def test_pull_request_webhook_creates_pending_analysis_run(
     assert "diff_snapshot" not in run
 
 
-def test_pull_request_webhook_schedules_analysis_execution(
+def test_pull_request_webhook_enqueues_analysis_execution(
     monkeypatch, client, repository
 ):
-    executed = []
+    enqueued = []
 
     monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", "secret")
     get_settings.cache_clear()
@@ -309,8 +309,8 @@ def test_pull_request_webhook_schedules_analysis_execution(
         },
     )
     monkeypatch.setattr(
-        "app.services.analysis_execution_service.execute_analysis_run",
-        lambda db, analysis_run_id: executed.append(str(analysis_run_id)),
+        "app.services.analysis_queue.enqueue",
+        lambda run_id: enqueued.append(str(run_id)),
     )
 
     response = client.post(
@@ -341,7 +341,7 @@ def test_pull_request_webhook_schedules_analysis_execution(
 
     assert response.status_code == 202
     assert response.json()["analysis_run_id"] is not None
-    assert executed
+    assert enqueued == [response.json()["analysis_run_id"]]
     get_settings.cache_clear()
 
 
@@ -391,21 +391,16 @@ def test_webhook_service_schedules_new_pending_run_without_database(monkeypatch)
         ),
     )
     monkeypatch.setattr(
-        github_webhook_service,
-        "_execute_run_by_id",
+        github_webhook_service.analysis_queue,
+        "enqueue",
         lambda current_analysis_run_id: scheduled.append(current_analysis_run_id),
     )
-
-    class ImmediateBackgroundTasks:
-        def add_task(self, function, *args):
-            function(*args)
 
     result = github_webhook_service.process_github_webhook(
         object(),
         body,
         "pull_request",
         "sha256=test",
-        background_tasks=ImmediateBackgroundTasks(),
     )
 
     assert result.analysis_run_id == analysis_run_id

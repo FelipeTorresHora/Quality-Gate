@@ -12,7 +12,7 @@ from app.schemas.analysis import (
     GitHubPublicationResult,
 )
 from app.services import (
-    analysis_execution_service,
+    analysis_queue,
     analysis_service,
     github_publication_service,
 )
@@ -51,6 +51,7 @@ def get_analysis_run(
 @router.post(
     "/api/analysis-runs/{analysis_run_id}/execute",
     response_model=AnalysisRunDetail,
+    status_code=202,
 )
 def execute_analysis_run(
     analysis_run_id: UUID,
@@ -60,7 +61,8 @@ def execute_analysis_run(
 ):
     run = analysis_service.get_analysis_run(db, analysis_run_id)
     require_repository_admin(db, current_user, run.repository_id)
-    return analysis_execution_service.execute_analysis_run(db, analysis_run_id)
+    analysis_queue.enqueue(analysis_run_id)
+    return analysis_service.get_analysis_run(db, analysis_run_id)
 
 
 @router.post(

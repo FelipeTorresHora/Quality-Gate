@@ -16,14 +16,21 @@ from uuid import UUID
 
 from app.core.config import get_settings
 
-SECRET_ENV_PREFIXES = (
-    "GITHUB_",
-    "OPENAI_",
-    "LANGSMITH_",
+SAFE_ENV_ALLOWLIST = (
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "TZ",
+    "TMPDIR",
+    "SHELL",
+    "GOPATH",
+    "GOCACHE",
+    "GOMODCACHE",
+    "NODE_ENV",
+    "PYTHONUNBUFFERED",
+    "PYTHONDONTWRITEBYTECODE",
 )
-SECRET_ENV_NAMES = {
-    "DATABASE_URL",
-}
 
 
 @dataclass
@@ -39,8 +46,8 @@ class CommandResult:
         return {
             "command": redacted_command(self.command),
             "exit_code": self.exit_code,
-            "stdout": self.stdout[-4000:],
-            "stderr": self.stderr[-4000:],
+            "stdout": redact_secrets(self.stdout[-4000:]),
+            "stderr": redact_secrets(self.stderr[-4000:]),
             "duration_seconds": round(self.duration_seconds, 3),
             "timed_out": self.timed_out,
         }
@@ -148,10 +155,7 @@ def download_repository_archive(
     timeout_seconds: int | None = None,
 ) -> CommandResult:
     timeout = timeout_seconds or get_settings().command_timeout_seconds
-    archive_url = (
-        f"https://codeload.github.com/{repository.owner}/"
-        f"{repository.name}/tar.gz/{revision}"
-    )
+    archive_url = _archive_url(repository.owner, repository.name, revision)
     command = f"download GitHub archive {archive_url}"
     started = time.monotonic()
     archive_path: Path | None = None
@@ -161,7 +165,7 @@ def download_repository_archive(
             archive_url,
             headers=_github_archive_headers(repository.token),
         )
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _opener.open(request, timeout=timeout) as response:
             with tempfile.NamedTemporaryFile(
                 suffix=".tar.gz",
                 dir=root,
@@ -220,6 +224,21 @@ def download_repository_archive(
             shutil.rmtree(extract_path, ignore_errors=True)
 
 
+def _archive_url(owner: str, name: str, revision: str) -> str:
+    return f"https://api.github.com/repos/{owner}/{name}/tarball/{revision}"
+
+
+class _NoAuthOnRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None:
+            new.headers.pop("Authorization", None)
+        return new
+
+
+_opener = urllib.request.build_opener(_NoAuthOnRedirect)
+
+
 def _github_archive_headers(token: str | None) -> dict[str, str]:
     headers = {
         "Accept": "application/vnd.github+json",
@@ -244,6 +263,24 @@ def redacted_command(command: str) -> str:
         "x-access-token:***@",
         command,
     )
+
+
+_SECRET_PATTERNS = [
+    re.compile(r"x-access-token:[^@\s]+@"),
+    re.compile(r"\bghs_[A-Za-z0-9]{20,}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),
+    re.compile(r"\bgho_[A-Za-z0-9]{20,}\b"),
+    re.compile(
+        r"-----BEGIN[ A-Z]*PRIVATE KEY-----.*?-----END[ A-Z]*PRIVATE KEY-----",
+        re.S,
+    ),
+]
+
+
+def redact_secrets(text: str) -> str:
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub("***REDACTED***", text)
+    return text
 
 
 def run_command(
@@ -285,11 +322,6 @@ def run_command(
 
 
 def _safe_env() -> dict[str, str]:
-    safe: dict[str, str] = {}
-    for key, value in os.environ.items():
-        if key in SECRET_ENV_NAMES:
-            continue
-        if any(key.startswith(prefix) for prefix in SECRET_ENV_PREFIXES):
-            continue
-        safe[key] = value
+    safe = {key: os.environ[key] for key in SAFE_ENV_ALLOWLIST if key in os.environ}
+    safe.setdefault("PATH", "/usr/local/bin:/usr/bin:/bin")
     return safe

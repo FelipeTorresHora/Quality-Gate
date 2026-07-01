@@ -14,7 +14,7 @@ from app.schemas.github import (
 )
 from app.schemas.repository import RepositoryRead
 from app.services import (
-    analysis_execution_service,
+    analysis_queue,
     analysis_service,
     github_service,
     repository_service,
@@ -74,6 +74,7 @@ def get_pull_request_context(
 @router.post(
     "/{repository_id}/pull-requests/{pr_number}/analyze",
     response_model=AnalysisRunDetail,
+    status_code=202,
 )
 def analyze_pull_request(
     repository_id: UUID,
@@ -94,5 +95,5 @@ def analyze_pull_request(
         context,
     )
     if run.status == AnalysisRunStatus.PENDING:
-        return analysis_execution_service.execute_analysis_run(db, run.id)
+        analysis_queue.enqueue(run.id)
     return analysis_service.get_analysis_run(db, run.id)

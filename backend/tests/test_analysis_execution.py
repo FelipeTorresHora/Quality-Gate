@@ -1,8 +1,12 @@
-from datetime import UTC, datetime
+from uuid import UUID
 
+import pytest
+
+from app.core.errors import AppError
 from app.db.session import SessionLocal
 from app.models.analysis_run import AnalysisRun
 from app.models.enums import AnalysisRunStatus, AnalysisTriggerSource, FindingCategory
+from app.services import analysis_execution_service
 
 
 def _create_run(
@@ -10,6 +14,7 @@ def _create_run(
     *,
     diff_snapshot="diff --git",
     status=AnalysisRunStatus.PENDING,
+    started_at=None,
 ):
     with SessionLocal() as db:
         run = AnalysisRun(
@@ -17,6 +22,7 @@ def _create_run(
             pr_number=42,
             head_sha="head123",
             status=status,
+            started_at=started_at,
             trigger_source=AnalysisTriggerSource.GITHUB_WEBHOOK,
             pull_request_snapshot_json={
                 "number": 42,
@@ -42,6 +48,25 @@ def _create_run(
         return str(run.id)
 
 
+def _execute(run_id):
+    with SessionLocal() as db:
+        result = analysis_execution_service.execute_analysis_run(db, UUID(run_id))
+        return {
+            "status": result.status.value,
+            "decision": result.decision.value if result.decision else None,
+            "score": result.score,
+            "ai_review_json": result.ai_review_json,
+            "started_at": result.started_at,
+            "finished_at": result.finished_at,
+            "final_report_markdown": result.final_report_markdown,
+            "coverage_result_json": result.coverage_result_json,
+            "security_result_json": result.security_result_json,
+            "technical_debt_result_json": result.technical_debt_result_json,
+            "error_message": result.error_message,
+            "findings": list(result.findings),
+        }
+
+
 def _gate_result(status="pass", category=FindingCategory.COVERAGE):
     from app.models.enums import FindingSeverity
     from app.services.gates.types import GateFinding, GateResult
@@ -62,23 +87,106 @@ def _gate_result(status="pass", category=FindingCategory.COVERAGE):
     )
 
 
-def _csrf_headers(repository):
-    return {"X-CSRF-Token": repository["csrf_token"]}
-
-
-def test_execute_rejects_non_pending_run(client, repository):
+def test_execute_rejects_non_pending_run(repository):
     run_id = _create_run(repository, status=AnalysisRunStatus.COMPLETED)
 
-    response = client.post(
-        f"/api/analysis-runs/{run_id}/execute",
-        headers=_csrf_headers(repository),
+    with pytest.raises(AppError) as exc_info:
+        _execute(run_id)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.code == "analysis_run_not_pending"
+
+
+def test_execute_marks_error_on_unexpected_exception(repository, monkeypatch):
+    run_id = _create_run(repository)
+
+    from app.services.gates import coverage_gate
+
+    def boom(**kwargs):
+        raise RuntimeError("scanner crashed")
+
+    monkeypatch.setattr(coverage_gate, "run_coverage_gate", boom)
+
+    run = _execute(run_id)
+
+    assert run["status"] == "error"
+    assert "Unexpected analysis failure" in run["error_message"]
+    assert "scanner crashed" in run["error_message"]
+
+
+def test_execute_reruns_stale_running_run(repository, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    run_id = _create_run(
+        repository,
+        status=AnalysisRunStatus.RUNNING,
+        started_at=datetime.now(UTC) - timedelta(minutes=31),
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"]["code"] == "analysis_run_not_pending"
+    from app.services.gates import coverage_gate, security_gate, technical_debt_gate
+
+    monkeypatch.setattr(
+        coverage_gate,
+        "run_coverage_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.COVERAGE),
+    )
+    monkeypatch.setattr(
+        security_gate,
+        "run_security_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.SECURITY),
+    )
+    monkeypatch.setattr(
+        technical_debt_gate,
+        "run_technical_debt_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.TECHNICAL_DEBT),
+    )
+
+    run = _execute(run_id)
+
+    assert run["status"] == "completed"
 
 
-def test_execute_pending_run_completes_with_pass(client, repository, monkeypatch):
+def test_execute_rejects_fresh_running_run(repository):
+    from datetime import UTC, datetime
+
+    run_id = _create_run(
+        repository,
+        status=AnalysisRunStatus.RUNNING,
+        started_at=datetime.now(UTC),
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        _execute(run_id)
+
+    assert exc_info.value.status_code == 409
+
+
+def test_execute_aborts_when_total_time_budget_exceeded(repository, monkeypatch):
+    run_id = _create_run(repository)
+
+    from types import SimpleNamespace
+
+    from app.services import analysis_execution_service
+    from app.services.gates import coverage_gate
+
+    monkeypatch.setattr(
+        analysis_execution_service,
+        "get_settings",
+        lambda: SimpleNamespace(analysis_total_timeout_seconds=-1),
+    )
+
+    def gate_should_not_run(**kwargs):
+        raise AssertionError("gate must not run past the time budget")
+
+    monkeypatch.setattr(coverage_gate, "run_coverage_gate", gate_should_not_run)
+
+    run = _execute(run_id)
+
+    assert run["status"] == "error"
+    assert "time budget" in run["error_message"].lower()
+
+
+def test_execute_pending_run_completes_with_pass(repository, monkeypatch):
     run_id = _create_run(repository)
 
     from app.models.enums import FindingCategory
@@ -100,13 +208,8 @@ def test_execute_pending_run_completes_with_pass(client, repository, monkeypatch
         lambda **kwargs: _gate_result("pass", FindingCategory.TECHNICAL_DEBT),
     )
 
-    response = client.post(
-        f"/api/analysis-runs/{run_id}/execute",
-        headers=_csrf_headers(repository),
-    )
+    run = _execute(run_id)
 
-    assert response.status_code == 200
-    run = response.json()
     assert run["status"] == "completed"
     assert run["decision"] == "pass"
     assert run["score"] is None
@@ -117,7 +220,7 @@ def test_execute_pending_run_completes_with_pass(client, repository, monkeypatch
 
 
 def test_execute_pending_run_stores_generated_ai_review_and_score(
-    client, repository, monkeypatch
+    repository, monkeypatch
 ):
     run_id = _create_run(repository)
 
@@ -158,13 +261,8 @@ def test_execute_pending_run_stores_generated_ai_review_and_score(
         },
     )
 
-    response = client.post(
-        f"/api/analysis-runs/{run_id}/execute",
-        headers=_csrf_headers(repository),
-    )
+    run = _execute(run_id)
 
-    assert response.status_code == 200
-    run = response.json()
     assert run["status"] == "completed"
     assert run["decision"] == "pass"
     assert run["score"] == 91
@@ -174,7 +272,7 @@ def test_execute_pending_run_stores_generated_ai_review_and_score(
 
 
 def test_execute_pending_run_completes_with_fail_when_any_gate_fails(
-    client, repository, monkeypatch
+    repository, monkeypatch
 ):
     run_id = _create_run(repository)
 
@@ -197,13 +295,8 @@ def test_execute_pending_run_completes_with_fail_when_any_gate_fails(
         lambda **kwargs: _gate_result("pass", FindingCategory.TECHNICAL_DEBT),
     )
 
-    response = client.post(
-        f"/api/analysis-runs/{run_id}/execute",
-        headers=_csrf_headers(repository),
-    )
+    run = _execute(run_id)
 
-    assert response.status_code == 200
-    run = response.json()
     assert run["status"] == "completed"
     assert run["decision"] == "fail"
     assert run["score"] is None
@@ -214,11 +307,10 @@ def test_execute_pending_run_completes_with_fail_when_any_gate_fails(
 
 
 def test_execute_pending_run_errors_and_keeps_partial_snapshots(
-    client, repository, monkeypatch
+    repository, monkeypatch
 ):
     run_id = _create_run(repository)
 
-    from app.models.enums import FindingCategory
     from app.services.agent import quality_agent
     from app.services.gates import coverage_gate, security_gate, technical_debt_gate
     from app.services.gates.types import GateResult
@@ -251,13 +343,8 @@ def test_execute_pending_run_errors_and_keeps_partial_snapshots(
 
     monkeypatch.setattr(quality_agent, "generate_ai_review_snapshot", fake_ai_review)
 
-    response = client.post(
-        f"/api/analysis-runs/{run_id}/execute",
-        headers=_csrf_headers(repository),
-    )
+    run = _execute(run_id)
 
-    assert response.status_code == 200
-    run = response.json()
     assert run["status"] == "error"
     assert run["decision"] is None
     assert run["coverage_result_json"]["status"] == "pass"
@@ -269,7 +356,7 @@ def test_execute_pending_run_errors_and_keeps_partial_snapshots(
     assert ai_called is False
 
 
-def test_execute_skips_disabled_gates(client, repository, monkeypatch):
+def test_execute_skips_disabled_gates(repository, monkeypatch):
     run_id = _create_run(repository)
 
     from app.models.quality_gate_config import QualityGateConfig
@@ -296,13 +383,8 @@ def test_execute_skips_disabled_gates(client, repository, monkeypatch):
         lambda **kwargs: _gate_result("pass", FindingCategory.TECHNICAL_DEBT),
     )
 
-    response = client.post(
-        f"/api/analysis-runs/{run_id}/execute",
-        headers=_csrf_headers(repository),
-    )
+    run = _execute(run_id)
 
-    assert response.status_code == 200
-    run = response.json()
     assert run["status"] == "completed"
     assert run["decision"] == "pass"
     assert run["coverage_result_json"] == {

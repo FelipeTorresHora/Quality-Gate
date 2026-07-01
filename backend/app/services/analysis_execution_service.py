@@ -1,9 +1,11 @@
-from datetime import UTC, datetime
+import time
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import get_settings
 from app.core.errors import AppError
 from app.models.analysis_finding import AnalysisFinding
 from app.models.analysis_run import AnalysisRun
@@ -16,9 +18,20 @@ from app.services import report_service
 from app.services import github_app_auth_service, github_installation_service
 
 
+STALE_RUNNING_AFTER = timedelta(minutes=30)
+
+
 def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     run = _get_run_for_execution(db, analysis_run_id)
-    if run.status not in (AnalysisRunStatus.PENDING, AnalysisRunStatus.ERROR):
+    is_stale_running = (
+        run.status == AnalysisRunStatus.RUNNING
+        and run.started_at is not None
+        and datetime.now(UTC) - run.started_at > STALE_RUNNING_AFTER
+    )
+    if (
+        run.status not in (AnalysisRunStatus.PENDING, AnalysisRunStatus.ERROR)
+        and not is_stale_running
+    ):
         raise AppError(
             409,
             "analysis_run_not_pending",
@@ -50,7 +63,23 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     db.execute(delete(AnalysisFinding).where(AnalysisFinding.analysis_run_id == run.id))
     db.commit()
 
+    try:
+        return _run_pipeline(db, run, repository_token)
+    except AppError:
+        raise
+    except Exception as exc:
+        db.rollback()
+        return _finish_with_error(db, run, f"Unexpected analysis failure: {exc}")
+
+
+def _run_pipeline(
+    db: Session, run: AnalysisRun, repository_token: str | None
+) -> AnalysisRun:
+    deadline = time.monotonic() + get_settings().analysis_total_timeout_seconds
     gate_results: list[GateResult] = []
+
+    if time.monotonic() > deadline:
+        return _finish_with_error(db, run, "Analysis exceeded total time budget.")
 
     if run.repository.quality_gate_config.coverage_enabled:
         coverage = coverage_gate.run_coverage_gate(
@@ -69,6 +98,9 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     if coverage.status == "error":
         return _finish_with_error(db, run, coverage.error_message)
 
+    if time.monotonic() > deadline:
+        return _finish_with_error(db, run, "Analysis exceeded total time budget.")
+
     if run.repository.quality_gate_config.security_enabled:
         security = security_gate.run_security_gate(
             analysis_run=run,
@@ -85,6 +117,9 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     db.commit()
     if security.status == "error":
         return _finish_with_error(db, run, security.error_message)
+
+    if time.monotonic() > deadline:
+        return _finish_with_error(db, run, "Analysis exceeded total time budget.")
 
     if run.repository.quality_gate_config.technical_debt_enabled:
         technical_debt = technical_debt_gate.run_technical_debt_gate(

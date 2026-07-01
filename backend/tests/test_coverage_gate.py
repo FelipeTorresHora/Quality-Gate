@@ -84,7 +84,7 @@ def test_parse_go_coverprofile(tmp_path):
     assert result.files["github.com/acme/app/main.go"].total == 2
 
 
-def test_changed_file_missing_from_report_counts_as_zero():
+def test_unmatched_changed_file_is_not_counted_as_zero():
     from app.services.gates.coverage_gate import calculate_changed_files_coverage
     from app.services.coverage_parsers.types import CoverageFile, CoverageReport
 
@@ -99,8 +99,91 @@ def test_changed_file_missing_from_report_counts_as_zero():
         "python",
     )
 
-    assert result.changed_files_coverage == 40
+    assert result.changed_files_coverage == 80.0
     assert result.changed_source_files == ["src/covered.py", "src/missing.py"]
+    assert result.unmatched == ["src/missing.py"]
+
+
+def test_changed_files_coverage_is_line_weighted():
+    from app.services.gates.coverage_gate import calculate_changed_files_coverage
+    from app.services.coverage_parsers.types import CoverageFile, CoverageReport
+
+    report = CoverageReport(
+        total_coverage=0,
+        files={
+            "src/a.py": CoverageFile(covered=9, total=10),
+            "src/b.py": CoverageFile(covered=0, total=90),
+        },
+    )
+
+    result = calculate_changed_files_coverage(
+        report,
+        [{"filename": "src/a.py"}, {"filename": "src/b.py"}],
+        "python",
+    )
+
+    assert result.changed_files_coverage == 9.0
+
+
+def test_all_changed_files_unmatched_returns_none():
+    from app.services.gates.coverage_gate import calculate_changed_files_coverage
+    from app.services.coverage_parsers.types import CoverageReport
+
+    result = calculate_changed_files_coverage(
+        CoverageReport(total_coverage=0, files={}),
+        [{"filename": "src/only.py"}],
+        "python",
+    )
+
+    assert result.changed_files_coverage is None
+    assert result.unmatched == ["src/only.py"]
+
+
+def test_normalize_path_preserves_leading_dot_directories():
+    from app.services.gates.coverage_gate import _normalize_path
+
+    assert _normalize_path(".github/workflows/ci.yml") == ".github/workflows/ci.yml"
+    assert _normalize_path("./src/app.py") == "src/app.py"
+    assert _normalize_path("src\\app.py") == "src/app.py"
+
+
+def test_changed_file_matches_report_through_working_directory():
+    from app.services.gates.coverage_gate import calculate_changed_files_coverage
+    from app.services.coverage_parsers.types import CoverageFile, CoverageReport
+
+    report = CoverageReport(
+        total_coverage=100,
+        files={"main.py": CoverageFile(covered=2, total=2)},
+    )
+
+    result = calculate_changed_files_coverage(
+        report,
+        [{"filename": "agent/main.py"}],
+        "python",
+        working_directory="agent",
+    )
+
+    assert result.changed_files_coverage == 100.0
+    assert result.unmatched == []
+
+
+def test_changed_file_matches_report_by_suffix_fallback():
+    from app.services.gates.coverage_gate import calculate_changed_files_coverage
+    from app.services.coverage_parsers.types import CoverageFile, CoverageReport
+
+    report = CoverageReport(
+        total_coverage=50,
+        files={"repo/src/app.py": CoverageFile(covered=1, total=2)},
+    )
+
+    result = calculate_changed_files_coverage(
+        report,
+        [{"filename": "src/app.py"}],
+        "python",
+    )
+
+    assert result.changed_files_coverage == 50.0
+    assert result.unmatched == []
 
 
 def test_no_changed_source_files_disables_changed_files_rule():
@@ -145,6 +228,78 @@ def test_coverage_policy_creates_blocking_findings():
         FindingCategory.COVERAGE,
     ]
     assert all(finding.blocking for finding in findings)
+
+
+def test_base_coverage_skipped_when_no_drop_policy(monkeypatch, tmp_path):
+    from app.services.gates import coverage_gate
+
+    checkouts = []
+
+    class FakeRunnerWorkspace:
+        def __init__(self, analysis_run_id, repository_url):
+            self.repo_path = tmp_path / "repo"
+            self.command_metadata = []
+
+        def __enter__(self):
+            self.repo_path.mkdir(parents=True, exist_ok=True)
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def checkout(self, revision):
+            checkouts.append(revision)
+
+        def run(self, command, working_directory="."):
+            report = self.repo_path / working_directory / "coverage.xml"
+            report.write_text(
+                """<?xml version="1.0" ?>
+<coverage>
+  <packages>
+    <package>
+      <classes>
+        <class filename="main.py">
+          <lines>
+            <line number="1" hits="1"/>
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>
+""",
+                encoding="utf-8",
+            )
+            return SimpleNamespace(timed_out=False, exit_code=0)
+
+    monkeypatch.setattr(coverage_gate, "RunnerWorkspace", FakeRunnerWorkspace)
+
+    result = coverage_gate.run_coverage_gate(
+        analysis_run=SimpleNamespace(
+            id=uuid4(),
+            head_sha="head-sha",
+            pull_request_snapshot_json={"base_sha": "base-sha"},
+            changed_files_snapshot_json=[{"filename": "main.py"}],
+        ),
+        repository=SimpleNamespace(owner="o", name="r"),
+        quality_config=SimpleNamespace(
+            min_total_coverage=0,
+            max_coverage_drop=None,
+            min_changed_files_coverage=0,
+        ),
+        coverage_config=SimpleNamespace(
+            language=SimpleNamespace(value="python"),
+            install_command="",
+            test_command="pytest",
+            report_path="coverage.xml",
+            report_format=SimpleNamespace(value="cobertura_xml"),
+            working_directory=".",
+        ),
+        repository_token="t",
+    )
+
+    assert checkouts == ["head-sha"]
+    assert result.snapshot["status"] == "pass"
 
 
 def test_coverage_gate_runs_commands_in_configured_working_directory(

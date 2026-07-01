@@ -105,3 +105,31 @@ def test_javascript_function_length_finding(tmp_path):
 
     assert len(findings) == 1
     assert findings[0].title == "Function exceeds line limit"
+
+
+def test_brace_language_long_function_finding_is_non_blocking(tmp_path):
+    from app.services.gates.technical_debt_gate import analyze_brace_language_file
+
+    source = tmp_path / "app.ts"
+    source.write_text(
+        "\n".join(
+            [
+                "function run() {",
+                "  const a = 1;",
+                "  const b = 2;",
+                "  return a + b;",
+                "}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    findings = analyze_brace_language_file(
+        source,
+        display_path="src/app.ts",
+        max_function_lines=3,
+        language="typescript",
+    )
+
+    assert findings
+    assert all(finding.blocking is False for finding in findings)

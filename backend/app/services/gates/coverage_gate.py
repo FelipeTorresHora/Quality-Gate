@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,7 @@ from app.services.runner_service import RunnerError, RunnerWorkspace, repository
 class ChangedCoverageResult:
     changed_files_coverage: float | None
     changed_source_files: list[str]
+    unmatched: list[str] = field(default_factory=list)
 
 
 def run_coverage_gate(
@@ -44,10 +45,18 @@ def run_coverage_gate(
             repository_token,
         ),
     )
+    needs_base = (
+        quality_config.max_coverage_drop is not None
+        and quality_config.max_coverage_drop >= 0
+    )
     try:
         with workspace:
-            base_report = _run_revision_coverage(workspace, base_sha, coverage_config)
             head_report = _run_revision_coverage(workspace, head_sha, coverage_config)
+            base_report = (
+                _run_revision_coverage(workspace, base_sha, coverage_config)
+                if needs_base
+                else None
+            )
     except Exception as exc:
         return GateResult(
             snapshot={
@@ -66,13 +75,14 @@ def run_coverage_gate(
         head_report,
         analysis_run.changed_files_snapshot_json,
         coverage_config.language.value,
+        getattr(coverage_config, "working_directory", "."),
     )
     snapshot, findings = apply_coverage_policy(
         language=coverage_config.language.value,
         report_format=coverage_config.report_format.value,
         base_sha=base_sha,
         head_sha=head_sha,
-        base_coverage=base_report.total_coverage,
+        base_coverage=base_report.total_coverage if base_report else None,
         pr_coverage=head_report.total_coverage,
         changed_files_coverage=changed.changed_files_coverage,
         changed_source_files=changed.changed_source_files,
@@ -82,6 +92,7 @@ def run_coverage_gate(
             "min_changed_files_coverage": quality_config.min_changed_files_coverage,
         },
         command_metadata=workspace.command_metadata,
+        unmatched=changed.unmatched,
     )
     return GateResult(snapshot=snapshot, findings=findings)
 
@@ -90,6 +101,7 @@ def calculate_changed_files_coverage(
     report: CoverageReport,
     changed_files: list[dict[str, Any]],
     language: str,
+    working_directory: str = ".",
 ) -> ChangedCoverageResult:
     source_files = [
         item["filename"]
@@ -104,20 +116,53 @@ def calculate_changed_files_coverage(
             changed_source_files=[],
         )
 
-    percentages: list[float] = []
-    normalized_report = {_normalize_path(path): value for path, value in report.files.items()}
+    normalized_report = {
+        _normalize_path(path): value for path, value in report.files.items()
+    }
+    covered_lines = 0
+    total_lines = 0
+    unmatched: list[str] = []
     for filename in source_files:
-        coverage = normalized_report.get(_normalize_path(filename))
+        coverage = _lookup_coverage(normalized_report, filename, working_directory)
         if coverage is None:
-            percentages.append(0)
+            unmatched.append(filename)
             continue
-        percentages.append(coverage.percentage)
+        covered_lines += coverage.covered
+        total_lines += coverage.total
 
-    percentage = round(sum(percentages) / len(percentages), 2)
+    if total_lines == 0:
+        return ChangedCoverageResult(
+            changed_files_coverage=None,
+            changed_source_files=source_files,
+            unmatched=unmatched,
+        )
+
+    percentage = round(100 * covered_lines / total_lines, 2)
     return ChangedCoverageResult(
         changed_files_coverage=percentage,
         changed_source_files=source_files,
+        unmatched=unmatched,
     )
+
+
+def _match_keys(path: str, working_directory: str) -> set[str]:
+    norm = _normalize_path(path)
+    keys = {norm}
+    wd = _normalize_path(working_directory).strip("/")
+    if wd and norm.startswith(wd + "/"):
+        keys.add(norm[len(wd) + 1 :])
+    return keys
+
+
+def _lookup_coverage(normalized_report, path: str, working_directory: str):
+    for key in _match_keys(path, working_directory):
+        if key in normalized_report:
+            return normalized_report[key]
+    norm = _normalize_path(path)
+    for report_path, coverage in normalized_report.items():
+        if report_path.endswith("/" + norm) or norm.endswith("/" + report_path):
+            return coverage
+    return None
 
 
 def apply_coverage_policy(
@@ -126,16 +171,18 @@ def apply_coverage_policy(
     report_format: str,
     base_sha: str,
     head_sha: str,
-    base_coverage: float,
+    base_coverage: float | None,
     pr_coverage: float,
     changed_files_coverage: float | None,
     changed_source_files: list[str],
     quality_config: dict[str, float],
     command_metadata: list[dict],
+    unmatched: list[str] | None = None,
 ) -> tuple[dict, list[GateFinding]]:
     blocking_reasons: list[str] = []
     findings: list[GateFinding] = []
-    coverage_drop = round(base_coverage - pr_coverage, 2)
+    base_measured = base_coverage is not None
+    coverage_drop = round(base_coverage - pr_coverage, 2) if base_measured else 0.0
 
     def add_failure(title: str, description: str) -> None:
         blocking_reasons.append(description)
@@ -156,7 +203,11 @@ def apply_coverage_policy(
             "Total coverage is below policy",
             f"Pull Request coverage {pr_coverage}% is below the configured minimum {quality_config['min_total_coverage']}%.",
         )
-    if coverage_drop > quality_config["max_coverage_drop"]:
+    if (
+        base_measured
+        and quality_config["max_coverage_drop"] is not None
+        and coverage_drop > quality_config["max_coverage_drop"]
+    ):
         add_failure(
             "Coverage drop exceeds policy",
             f"Coverage drop {coverage_drop}% is above the configured maximum {quality_config['max_coverage_drop']}%.",
@@ -168,6 +219,12 @@ def apply_coverage_policy(
         add_failure(
             "Changed files coverage is below policy",
             f"Changed files coverage {changed_files_coverage}% is below the configured minimum {quality_config['min_changed_files_coverage']}%.",
+        )
+
+    warnings: list[str] = []
+    if unmatched:
+        warnings.append(
+            f"{len(unmatched)} changed files had no coverage data"
         )
 
     snapshot = {
@@ -182,6 +239,7 @@ def apply_coverage_policy(
         "changed_files_coverage": changed_files_coverage,
         "changed_source_files": changed_source_files,
         "blocking_reasons": blocking_reasons,
+        "warnings": warnings,
         "commands": command_metadata,
     }
     return snapshot, findings
@@ -243,4 +301,4 @@ def _parse_report(path: Path, report_format: str) -> CoverageReport:
 
 
 def _normalize_path(path: str) -> str:
-    return path.replace("\\", "/").lstrip("./")
+    return path.replace("\\", "/").removeprefix("./")
