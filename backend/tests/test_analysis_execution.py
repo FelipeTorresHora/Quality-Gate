@@ -219,6 +219,138 @@ def test_execute_pending_run_completes_with_pass(repository, monkeypatch):
     assert "# AI Quality Gate: PASS" in run["final_report_markdown"]
 
 
+def test_execute_reuses_prepared_head_workspace_across_enabled_gates(
+    repository,
+    monkeypatch,
+    tmp_path,
+):
+    run_id = _create_run(repository)
+
+    from app.services import analysis_evidence_workspace, runner_service
+    from app.services.gates import security_gate
+
+    checkouts = []
+
+    class FakeRunnerWorkspace:
+        def __init__(self, analysis_run_id, repository_url):
+            self.root = tmp_path / str(analysis_run_id)
+            self.repo_path = self.root / "repo"
+            self.command_metadata = []
+
+        def __enter__(self):
+            self.root.mkdir(parents=True, exist_ok=True)
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def checkout(self, revision):
+            checkouts.append(revision)
+            self.repo_path.mkdir(parents=True, exist_ok=True)
+            (self.repo_path / "src").mkdir(parents=True, exist_ok=True)
+            (self.repo_path / "src" / "app.py").write_text(
+                "def run():\n    return 'ok'\n",
+                encoding="utf-8",
+            )
+
+        def run(self, command, working_directory="."):
+            report = self.repo_path / working_directory / "coverage.xml"
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(
+                """<?xml version="1.0" ?>
+<coverage>
+  <packages>
+    <package>
+      <classes>
+        <class filename="src/app.py">
+          <lines>
+            <line number="1" hits="1"/>
+            <line number="2" hits="1"/>
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>
+""",
+                encoding="utf-8",
+            )
+            return runner_service.CommandResult(
+                command=command,
+                exit_code=0,
+                stdout="{}",
+                stderr="",
+                duration_seconds=0,
+            )
+
+    monkeypatch.setattr(
+        analysis_evidence_workspace,
+        "RunnerWorkspace",
+        FakeRunnerWorkspace,
+    )
+    monkeypatch.setattr(security_gate, "_scanner_commands", lambda language: [])
+
+    run = _execute(run_id)
+
+    assert run["status"] == "completed"
+    assert checkouts.count("head123") == 1
+    assert checkouts.count("base123") == 1
+
+
+def test_execute_marks_runner_timeout_as_operational_error(
+    repository,
+    monkeypatch,
+    tmp_path,
+):
+    run_id = _create_run(repository)
+
+    from app.services import analysis_evidence_workspace, runner_service
+
+    class TimeoutRunnerWorkspace:
+        def __init__(self, analysis_run_id, repository_url):
+            self.root = tmp_path / str(analysis_run_id)
+            self.repo_path = self.root / "repo"
+            self.command_metadata = []
+
+        def __enter__(self):
+            self.root.mkdir(parents=True, exist_ok=True)
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def checkout(self, revision):
+            self.repo_path.mkdir(parents=True, exist_ok=True)
+
+        def run(self, command, working_directory="."):
+            result = runner_service.CommandResult(
+                command=command,
+                exit_code=None,
+                stdout="",
+                stderr="",
+                duration_seconds=600,
+                timed_out=True,
+                adapter="isolated",
+                resource_limits={"timeout_seconds": 600},
+            )
+            self.command_metadata.append(result.to_snapshot())
+            return result
+
+    monkeypatch.setattr(
+        analysis_evidence_workspace,
+        "RunnerWorkspace",
+        TimeoutRunnerWorkspace,
+    )
+
+    run = _execute(run_id)
+
+    assert run["status"] == "error"
+    assert run["decision"] is None
+    assert "Coverage" in run["error_message"]
+    assert run["coverage_result_json"]["commands"][0]["timed_out"] is True
+    assert run["coverage_result_json"]["commands"][0]["runner_adapter"] == "isolated"
+
+
 def test_execute_pending_run_stores_generated_ai_review_and_score(
     repository, monkeypatch
 ):

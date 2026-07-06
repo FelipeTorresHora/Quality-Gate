@@ -1,28 +1,77 @@
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+import hashlib
 import secrets
 from urllib.parse import urlencode
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import AppError
 from app.models.github_connection import GitHubConnection
+from app.models.oauth_state import OAuthState
 from app.models.user import User
 from app.services import token_crypto_service
 
-AUTH_STATES: dict[str, str] = {}
-
 
 @dataclass
-class OAuthState:
+class CreatedOAuthState:
     state: str
     verifier: str
 
 
-def build_login_url() -> str:
+def _hash_oauth_value(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def create_oauth_state(
+    db: Session,
+    *,
+    ttl: timedelta | None = None,
+) -> CreatedOAuthState:
+    settings = get_settings()
+    ttl = ttl or timedelta(seconds=settings.github_oauth_state_ttl_seconds)
+    state = secrets.token_urlsafe(32)
+    verifier = secrets.token_urlsafe(48)
+    cleanup_expired_oauth_states(db)
+    db.add(
+        OAuthState(
+            state_hash=_hash_oauth_value(state),
+            verifier_hash=_hash_oauth_value(verifier),
+            expires_at=datetime.now(UTC) + ttl,
+        )
+    )
+    db.commit()
+    return CreatedOAuthState(state=state, verifier=verifier)
+
+
+def consume_oauth_state(db: Session, state: str) -> None:
+    now = datetime.now(UTC)
+    consumed_id = db.execute(
+        update(OAuthState)
+        .where(OAuthState.state_hash == _hash_oauth_value(state))
+        .where(OAuthState.consumed_at.is_(None))
+        .where(OAuthState.expires_at > now)
+        .values(consumed_at=now)
+        .returning(OAuthState.id)
+    ).scalar_one_or_none()
+    if consumed_id is None:
+        db.rollback()
+        raise AppError(
+            400,
+            "github_oauth_state_invalid",
+            "GitHub OAuth state is invalid.",
+        )
+    db.commit()
+
+
+def cleanup_expired_oauth_states(db: Session) -> None:
+    db.execute(delete(OAuthState).where(OAuthState.expires_at <= datetime.now(UTC)))
+
+
+def build_login_url(db: Session) -> str:
     settings = get_settings()
     if not settings.github_app_client_id:
         raise AppError(
@@ -30,27 +79,19 @@ def build_login_url() -> str:
             "github_app_config_missing",
             "GITHUB_APP_CLIENT_ID is required.",
         )
-    state = secrets.token_urlsafe(32)
-    verifier = secrets.token_urlsafe(48)
-    AUTH_STATES[state] = verifier
+    created_state = create_oauth_state(db)
     query = urlencode(
         {
             "client_id": settings.github_app_client_id,
             "redirect_uri": settings.auth_callback_url,
-            "state": state,
+            "state": created_state.state,
         }
     )
     return f"https://github.com/login/oauth/authorize?{query}"
 
 
 def exchange_code_for_user(code: str, state: str, db: Session) -> User:
-    if state not in AUTH_STATES:
-        raise AppError(
-            400,
-            "github_oauth_state_invalid",
-            "GitHub OAuth state is invalid.",
-        )
-    AUTH_STATES.pop(state, None)
+    consume_oauth_state(db, state)
     settings = get_settings()
     response = httpx.post(
         "https://github.com/login/oauth/access_token",

@@ -1,4 +1,5 @@
 from app.models.analysis_run import AnalysisRun
+from app.services.evidence_redaction_service import redact_json_like
 
 MAX_AI_DIFF_CHARS = 60000
 
@@ -17,7 +18,7 @@ def build_ai_review_input(run: AnalysisRun) -> dict:
     coverage_config = repository.coverage_execution_config
     diff = run.diff_snapshot or ""
 
-    return {
+    payload = {
         "analysis_run": {
             "id": str(run.id),
             "pr_number": run.pr_number,
@@ -72,3 +73,4 @@ def build_ai_review_input(run: AnalysisRun) -> dict:
             "report_format": coverage_config.report_format.value,
         },
     }
+    return redact_json_like(payload)

@@ -78,8 +78,8 @@ def test_scanner_missing_output_is_operational_error():
     assert "semgrep output was empty" in result["error_message"]
 
 
-def test_security_gate_uses_repository_token_for_clone(monkeypatch):
-    from app.services import runner_service
+def test_security_gate_uses_repository_token_for_clone(monkeypatch, tmp_path):
+    from app.services import analysis_evidence_workspace
     from app.services.gates import security_gate
 
     seen = {}
@@ -88,8 +88,12 @@ def test_security_gate_uses_repository_token_for_clone(monkeypatch):
         def __init__(self, analysis_run_id, repository_url):
             seen["analysis_run_id"] = analysis_run_id
             seen["repository_url"] = repository_url
+            self.root = tmp_path / str(analysis_run_id)
+            self.repo_path = self.root / "repo"
+            self.command_metadata = []
 
         def __enter__(self):
+            self.root.mkdir(parents=True, exist_ok=True)
             return self
 
         def __exit__(self, exc_type, exc, traceback):
@@ -97,21 +101,30 @@ def test_security_gate_uses_repository_token_for_clone(monkeypatch):
 
         def checkout(self, revision):
             seen["revision"] = revision
+            self.repo_path.mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setattr(runner_service, "RunnerWorkspace", FakeWorkspace)
+    monkeypatch.setattr(
+        analysis_evidence_workspace,
+        "RunnerWorkspace",
+        FakeWorkspace,
+    )
     monkeypatch.setattr(security_gate, "_scanner_commands", lambda language: [])
 
-    result = security_gate.run_security_gate(
-        analysis_run=SimpleNamespace(id=uuid4(), head_sha="head-sha"),
+    analysis_run = SimpleNamespace(id=uuid4(), head_sha="head-sha")
+    with analysis_evidence_workspace.GateExecutionEvidenceWorkspace(
+        analysis_run=analysis_run,
         repository=SimpleNamespace(owner="octo-org", name="quality-api"),
-        quality_config=SimpleNamespace(
-            security_fail_on=["critical", "high"]
-        ),
-        coverage_config=SimpleNamespace(
-            language=SimpleNamespace(value="python")
-        ),
         repository_token="installation-token",
-    )
+    ) as evidence_workspace:
+        result = security_gate.run_security_gate(
+            quality_config=SimpleNamespace(
+                security_fail_on=["critical", "high"]
+            ),
+            coverage_config=SimpleNamespace(
+                language=SimpleNamespace(value="python")
+            ),
+            evidence_workspace=evidence_workspace,
+        )
 
     assert result.snapshot["status"] == "pass"
     assert seen["repository_url"] == (
