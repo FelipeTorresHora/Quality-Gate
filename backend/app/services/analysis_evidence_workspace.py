@@ -5,23 +5,16 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from app.services.runner_service import (
-    RunnerError,
-    create_runner_workspace,
-    repository_clone_url,
-)
+from app.services.runner_service import RunnerError, RunnerWorkspace, repository_clone_url
 
 if TYPE_CHECKING:
     from app.models.analysis_run import AnalysisRun
     from app.models.repository import Repository
-    from app.services.gates.runner_protocol import Runner
     from app.services.runner_service import CommandResult
-
-RunnerWorkspace = create_runner_workspace
 
 
 class PreparedRevision:
-    def __init__(self, workspace: "Runner", repo_path: Path) -> None:
+    def __init__(self, workspace: RunnerWorkspace, repo_path: Path) -> None:
         self._workspace = workspace
         self.repo_path = repo_path
 
