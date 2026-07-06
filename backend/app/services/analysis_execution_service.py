@@ -11,6 +11,7 @@ from app.models.analysis_finding import AnalysisFinding
 from app.models.analysis_run import AnalysisRun
 from app.models.enums import AnalysisRunStatus, GateDecision
 from app.models.repository import Repository
+from app.services.analysis_evidence_workspace import GateExecutionEvidenceWorkspace
 from app.services.agent import quality_agent
 from app.services.gates import coverage_gate, security_gate, technical_debt_gate
 from app.services.gates.types import GateFinding, GateResult
@@ -78,65 +79,66 @@ def _run_pipeline(
     deadline = time.monotonic() + get_settings().analysis_total_timeout_seconds
     gate_results: list[GateResult] = []
 
-    if time.monotonic() > deadline:
-        return _finish_with_error(db, run, "Analysis exceeded total time budget.")
+    with GateExecutionEvidenceWorkspace(
+        analysis_run=run,
+        repository=run.repository,
+        repository_token=repository_token,
+    ) as evidence_workspace:
+        if time.monotonic() > deadline:
+            return _finish_with_error(db, run, "Analysis exceeded total time budget.")
 
-    if run.repository.quality_gate_config.coverage_enabled:
-        coverage = coverage_gate.run_coverage_gate(
-            analysis_run=run,
-            repository=run.repository,
-            quality_config=run.repository.quality_gate_config,
-            coverage_config=run.repository.coverage_execution_config,
-            repository_token=repository_token,
-        )
-    else:
-        coverage = _skipped_gate("coverage_gate_disabled")
-    run.coverage_result_json = coverage.snapshot
-    _persist_findings(db, run, coverage.findings)
-    gate_results.append(coverage)
-    db.commit()
-    if coverage.status == "error":
-        return _finish_with_error(db, run, coverage.error_message)
+        if run.repository.quality_gate_config.coverage_enabled:
+            coverage = coverage_gate.run_coverage_gate(
+                analysis_run=run,
+                quality_config=run.repository.quality_gate_config,
+                coverage_config=run.repository.coverage_execution_config,
+                evidence_workspace=evidence_workspace,
+            )
+        else:
+            coverage = _skipped_gate("coverage_gate_disabled")
+        run.coverage_result_json = coverage.snapshot
+        _persist_findings(db, run, coverage.findings)
+        gate_results.append(coverage)
+        db.commit()
+        if coverage.status == "error":
+            return _finish_with_error(db, run, coverage.error_message)
 
-    if time.monotonic() > deadline:
-        return _finish_with_error(db, run, "Analysis exceeded total time budget.")
+        if time.monotonic() > deadline:
+            return _finish_with_error(db, run, "Analysis exceeded total time budget.")
 
-    if run.repository.quality_gate_config.security_enabled:
-        security = security_gate.run_security_gate(
-            analysis_run=run,
-            repository=run.repository,
-            quality_config=run.repository.quality_gate_config,
-            coverage_config=run.repository.coverage_execution_config,
-            repository_token=repository_token,
-        )
-    else:
-        security = _skipped_gate("security_gate_disabled")
-    run.security_result_json = security.snapshot
-    _persist_findings(db, run, security.findings)
-    gate_results.append(security)
-    db.commit()
-    if security.status == "error":
-        return _finish_with_error(db, run, security.error_message)
+        if run.repository.quality_gate_config.security_enabled:
+            security = security_gate.run_security_gate(
+                quality_config=run.repository.quality_gate_config,
+                coverage_config=run.repository.coverage_execution_config,
+                evidence_workspace=evidence_workspace,
+            )
+        else:
+            security = _skipped_gate("security_gate_disabled")
+        run.security_result_json = security.snapshot
+        _persist_findings(db, run, security.findings)
+        gate_results.append(security)
+        db.commit()
+        if security.status == "error":
+            return _finish_with_error(db, run, security.error_message)
 
-    if time.monotonic() > deadline:
-        return _finish_with_error(db, run, "Analysis exceeded total time budget.")
+        if time.monotonic() > deadline:
+            return _finish_with_error(db, run, "Analysis exceeded total time budget.")
 
-    if run.repository.quality_gate_config.technical_debt_enabled:
-        technical_debt = technical_debt_gate.run_technical_debt_gate(
-            analysis_run=run,
-            repository=run.repository,
-            quality_config=run.repository.quality_gate_config,
-            coverage_config=run.repository.coverage_execution_config,
-            repository_token=repository_token,
-        )
-    else:
-        technical_debt = _skipped_gate("technical_debt_gate_disabled")
-    run.technical_debt_result_json = technical_debt.snapshot
-    _persist_findings(db, run, technical_debt.findings)
-    gate_results.append(technical_debt)
-    db.commit()
-    if technical_debt.status == "error":
-        return _finish_with_error(db, run, technical_debt.error_message)
+        if run.repository.quality_gate_config.technical_debt_enabled:
+            technical_debt = technical_debt_gate.run_technical_debt_gate(
+                analysis_run=run,
+                quality_config=run.repository.quality_gate_config,
+                coverage_config=run.repository.coverage_execution_config,
+                evidence_workspace=evidence_workspace,
+            )
+        else:
+            technical_debt = _skipped_gate("technical_debt_gate_disabled")
+        run.technical_debt_result_json = technical_debt.snapshot
+        _persist_findings(db, run, technical_debt.findings)
+        gate_results.append(technical_debt)
+        db.commit()
+        if technical_debt.status == "error":
+            return _finish_with_error(db, run, technical_debt.error_message)
 
     run.status = AnalysisRunStatus.COMPLETED
     run.decision = (

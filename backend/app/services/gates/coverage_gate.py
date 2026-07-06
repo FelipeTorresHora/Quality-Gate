@@ -7,8 +7,9 @@ from app.services.coverage_parsers.cobertura import parse_cobertura_xml
 from app.services.coverage_parsers.go_coverprofile import parse_go_coverprofile
 from app.services.coverage_parsers.lcov import parse_lcov
 from app.services.coverage_parsers.types import CoverageReport
+from app.services.analysis_evidence_workspace import GateExecutionEvidenceWorkspace
 from app.services.gates.types import GateFinding, GateResult
-from app.services.runner_service import RunnerError, RunnerWorkspace, repository_clone_url
+from app.services.runner_service import RunnerError
 
 
 @dataclass
@@ -21,10 +22,9 @@ class ChangedCoverageResult:
 def run_coverage_gate(
     *,
     analysis_run,
-    repository,
     quality_config,
     coverage_config,
-    repository_token: str | None = None,
+    evidence_workspace: GateExecutionEvidenceWorkspace,
 ) -> GateResult:
     base_sha = analysis_run.pull_request_snapshot_json.get("base_sha")
     head_sha = analysis_run.head_sha
@@ -37,26 +37,21 @@ def run_coverage_gate(
             error_message="Pull Request base and head revisions are required.",
         )
 
-    workspace = RunnerWorkspace(
-        analysis_run.id,
-        repository_clone_url(
-            repository.owner,
-            repository.name,
-            repository_token,
-        ),
-    )
     needs_base = (
         quality_config.max_coverage_drop is not None
         and quality_config.max_coverage_drop >= 0
     )
+    checkpoint = evidence_workspace.metadata_checkpoint()
     try:
-        with workspace:
-            head_report = _run_revision_coverage(workspace, head_sha, coverage_config)
-            base_report = (
-                _run_revision_coverage(workspace, base_sha, coverage_config)
-                if needs_base
-                else None
-            )
+        head_report = _run_revision_coverage(
+            evidence_workspace.prepare_head(),
+            coverage_config,
+        )
+        base_report = (
+            _run_revision_coverage(evidence_workspace.prepare_base(), coverage_config)
+            if needs_base
+            else None
+        )
     except Exception as exc:
         return GateResult(
             snapshot={
@@ -66,7 +61,7 @@ def run_coverage_gate(
                 "base_sha": base_sha,
                 "head_sha": head_sha,
                 "blocking_reasons": [str(exc)],
-                "commands": workspace.command_metadata,
+                "commands": evidence_workspace.metadata_since(checkpoint),
             },
             error_message=str(exc),
         )
@@ -91,7 +86,7 @@ def run_coverage_gate(
             "max_coverage_drop": quality_config.max_coverage_drop,
             "min_changed_files_coverage": quality_config.min_changed_files_coverage,
         },
-        command_metadata=workspace.command_metadata,
+        command_metadata=evidence_workspace.metadata_since(checkpoint),
         unmatched=changed.unmatched,
     )
     return GateResult(snapshot=snapshot, findings=findings)
@@ -267,24 +262,25 @@ def is_source_file(path: str, language: str) -> bool:
 
 
 def _run_revision_coverage(
-    workspace: RunnerWorkspace,
-    revision: str,
+    revision_workspace,
     coverage_config,
 ) -> CoverageReport:
     working_directory = getattr(coverage_config, "working_directory", ".")
-    workspace.checkout(revision)
     if coverage_config.install_command.strip():
-        install = workspace.run(
+        install = revision_workspace.run(
             coverage_config.install_command,
             working_directory=working_directory,
         )
         if install.timed_out or install.exit_code != 0:
             raise RunnerError("Coverage install command failed.", install)
-    test = workspace.run(
+    test = revision_workspace.run(
         coverage_config.test_command,
         working_directory=working_directory,
     )
-    report_path = workspace.repo_path / working_directory / coverage_config.report_path
+    report_path = revision_workspace.path_in_working_directory(
+        working_directory,
+        coverage_config.report_path,
+    )
     if not report_path.exists():
         raise RunnerError("Coverage report was not produced.", test)
     return _parse_report(report_path, coverage_config.report_format.value)

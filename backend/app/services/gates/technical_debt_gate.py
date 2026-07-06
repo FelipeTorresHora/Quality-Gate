@@ -3,9 +3,10 @@ import re
 from pathlib import Path
 
 from app.models.enums import FindingCategory, FindingSeverity
+from app.services.analysis_evidence_workspace import GateExecutionEvidenceWorkspace
 from app.services.gates.coverage_gate import is_source_file
 from app.services.gates.types import GateFinding, GateResult
-from app.services.runner_service import RunnerError, RunnerWorkspace, repository_clone_url
+from app.services.runner_service import RunnerError
 
 
 TODO_PATTERN = re.compile(r"\b(TODO|FIXME)\b", re.IGNORECASE)
@@ -17,10 +18,9 @@ BRACE_FUNCTION_PATTERN = re.compile(
 def run_technical_debt_gate(
     *,
     analysis_run,
-    repository,
     quality_config,
     coverage_config,
-    repository_token: str | None = None,
+    evidence_workspace: GateExecutionEvidenceWorkspace,
 ) -> GateResult:
     diff_error = validate_diff_evidence(
         analysis_run.changed_files_snapshot_json,
@@ -36,50 +36,42 @@ def run_technical_debt_gate(
     )
 
     try:
-        with RunnerWorkspace(
-            analysis_run.id,
-            repository_clone_url(
-                repository.owner,
-                repository.name,
-                repository_token,
-            ),
-        ) as workspace:
-            workspace.checkout(analysis_run.head_sha)
-            for changed_file in analysis_run.changed_files_snapshot_json:
-                filename = changed_file.get("filename")
-                if not filename or not is_source_file(filename, coverage_config.language.value):
-                    continue
-                path = workspace.repo_path / filename
-                if not path.exists() or not path.is_file():
-                    continue
-                try:
-                    if coverage_config.language.value == "python":
-                        findings.extend(
-                            analyze_python_file(
-                                path,
-                                display_path=filename,
-                                max_function_lines=quality_config.max_function_lines,
-                                max_complexity=quality_config.max_complexity,
-                            )
+        head = evidence_workspace.prepare_head()
+        for changed_file in analysis_run.changed_files_snapshot_json:
+            filename = changed_file.get("filename")
+            if not filename or not is_source_file(filename, coverage_config.language.value):
+                continue
+            path = head.path_in_repository(filename)
+            if not path.exists() or not path.is_file():
+                continue
+            try:
+                if coverage_config.language.value == "python":
+                    findings.extend(
+                        analyze_python_file(
+                            path,
+                            display_path=filename,
+                            max_function_lines=quality_config.max_function_lines,
+                            max_complexity=quality_config.max_complexity,
                         )
-                    else:
-                        findings.extend(
-                            analyze_brace_language_file(
-                                path,
-                                display_path=filename,
-                                max_function_lines=quality_config.max_function_lines,
-                                language=coverage_config.language.value,
-                            )
-                        )
-                except (OSError, SyntaxError) as exc:
-                    return GateResult(
-                        snapshot={
-                            "status": "error",
-                            "blocking_reasons": [str(exc)],
-                        },
-                        findings=findings,
-                        error_message=str(exc),
                     )
+                else:
+                    findings.extend(
+                        analyze_brace_language_file(
+                            path,
+                            display_path=filename,
+                            max_function_lines=quality_config.max_function_lines,
+                            language=coverage_config.language.value,
+                        )
+                    )
+            except (OSError, SyntaxError) as exc:
+                return GateResult(
+                    snapshot={
+                        "status": "error",
+                        "blocking_reasons": [str(exc)],
+                    },
+                    findings=findings,
+                    error_message=str(exc),
+                )
     except RunnerError as exc:
         return GateResult(
             snapshot={

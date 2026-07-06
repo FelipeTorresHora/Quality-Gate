@@ -3,19 +3,17 @@ from json import JSONDecodeError
 from typing import Any
 
 from app.models.enums import FindingCategory, FindingSeverity
+from app.services.analysis_evidence_workspace import GateExecutionEvidenceWorkspace
 from app.services.gates.types import GateFinding, GateResult
+from app.services.runner_service import RunnerError
 
 
 def run_security_gate(
     *,
-    analysis_run,
-    repository,
     quality_config,
     coverage_config,
-    repository_token: str | None = None,
+    evidence_workspace: GateExecutionEvidenceWorkspace,
 ) -> GateResult:
-    from app.services.runner_service import RunnerError, RunnerWorkspace, repository_clone_url
-
     blocking_severities = _blocking_severities(quality_config.security_fail_on)
     scanners = _scanner_commands(coverage_config.language.value)
     findings: list[GateFinding] = []
@@ -23,26 +21,18 @@ def run_security_gate(
     warnings: list[str] = []
 
     try:
-        with RunnerWorkspace(
-            analysis_run.id,
-            repository_clone_url(
-                repository.owner,
-                repository.name,
-                repository_token,
-            ),
-        ) as workspace:
-            workspace.checkout(analysis_run.head_sha)
-            for scanner, command in scanners:
-                result = workspace.run(command)
-                if result.timed_out:
-                    raise RunnerError(f"{scanner} timed out.", result)
-                parsed = parse_json_output(result.stdout, scanner)
-                if parsed["status"] == "error":
-                    raise RunnerError(parsed["error_message"], result)
-                scanners_run.append(scanner)
-                findings.extend(
-                    _normalize_scanner(scanner, parsed["json"], blocking_severities)
-                )
+        head = evidence_workspace.prepare_head()
+        for scanner, command in scanners:
+            result = head.run(command)
+            if result.timed_out:
+                raise RunnerError(f"{scanner} timed out.", result)
+            parsed = parse_json_output(result.stdout, scanner)
+            if parsed["status"] == "error":
+                raise RunnerError(parsed["error_message"], result)
+            scanners_run.append(scanner)
+            findings.extend(
+                _normalize_scanner(scanner, parsed["json"], blocking_severities)
+            )
     except RunnerError as exc:
         return GateResult(
             snapshot={

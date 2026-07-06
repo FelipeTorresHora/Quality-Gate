@@ -231,17 +231,19 @@ def test_coverage_policy_creates_blocking_findings():
 
 
 def test_base_coverage_skipped_when_no_drop_policy(monkeypatch, tmp_path):
+    from app.services import analysis_evidence_workspace
     from app.services.gates import coverage_gate
 
     checkouts = []
 
     class FakeRunnerWorkspace:
         def __init__(self, analysis_run_id, repository_url):
-            self.repo_path = tmp_path / "repo"
+            self.root = tmp_path / str(analysis_run_id)
+            self.repo_path = self.root / "repo"
             self.command_metadata = []
 
         def __enter__(self):
-            self.repo_path.mkdir(parents=True, exist_ok=True)
+            self.root.mkdir(parents=True, exist_ok=True)
             return self
 
         def __exit__(self, exc_type, exc, traceback):
@@ -249,6 +251,7 @@ def test_base_coverage_skipped_when_no_drop_policy(monkeypatch, tmp_path):
 
         def checkout(self, revision):
             checkouts.append(revision)
+            self.repo_path.mkdir(parents=True, exist_ok=True)
 
         def run(self, command, working_directory="."):
             report = self.repo_path / working_directory / "coverage.xml"
@@ -272,31 +275,40 @@ def test_base_coverage_skipped_when_no_drop_policy(monkeypatch, tmp_path):
             )
             return SimpleNamespace(timed_out=False, exit_code=0)
 
-    monkeypatch.setattr(coverage_gate, "RunnerWorkspace", FakeRunnerWorkspace)
-
-    result = coverage_gate.run_coverage_gate(
-        analysis_run=SimpleNamespace(
-            id=uuid4(),
-            head_sha="head-sha",
-            pull_request_snapshot_json={"base_sha": "base-sha"},
-            changed_files_snapshot_json=[{"filename": "main.py"}],
-        ),
-        repository=SimpleNamespace(owner="o", name="r"),
-        quality_config=SimpleNamespace(
-            min_total_coverage=0,
-            max_coverage_drop=None,
-            min_changed_files_coverage=0,
-        ),
-        coverage_config=SimpleNamespace(
-            language=SimpleNamespace(value="python"),
-            install_command="",
-            test_command="pytest",
-            report_path="coverage.xml",
-            report_format=SimpleNamespace(value="cobertura_xml"),
-            working_directory=".",
-        ),
-        repository_token="t",
+    monkeypatch.setattr(
+        analysis_evidence_workspace,
+        "RunnerWorkspace",
+        FakeRunnerWorkspace,
     )
+
+    analysis_run = SimpleNamespace(
+        id=uuid4(),
+        head_sha="head-sha",
+        pull_request_snapshot_json={"base_sha": "base-sha"},
+        changed_files_snapshot_json=[{"filename": "main.py"}],
+    )
+    with analysis_evidence_workspace.GateExecutionEvidenceWorkspace(
+        analysis_run=analysis_run,
+        repository=SimpleNamespace(owner="o", name="r"),
+        repository_token="t",
+    ) as evidence_workspace:
+        result = coverage_gate.run_coverage_gate(
+            analysis_run=analysis_run,
+            quality_config=SimpleNamespace(
+                min_total_coverage=0,
+                max_coverage_drop=None,
+                min_changed_files_coverage=0,
+            ),
+            coverage_config=SimpleNamespace(
+                language=SimpleNamespace(value="python"),
+                install_command="",
+                test_command="pytest",
+                report_path="coverage.xml",
+                report_format=SimpleNamespace(value="cobertura_xml"),
+                working_directory=".",
+            ),
+            evidence_workspace=evidence_workspace,
+        )
 
     assert checkouts == ["head-sha"]
     assert result.snapshot["status"] == "pass"
@@ -305,17 +317,19 @@ def test_base_coverage_skipped_when_no_drop_policy(monkeypatch, tmp_path):
 def test_coverage_gate_runs_commands_in_configured_working_directory(
     monkeypatch, tmp_path
 ):
+    from app.services import analysis_evidence_workspace
     from app.services.gates import coverage_gate
 
     commands = []
 
     class FakeRunnerWorkspace:
         def __init__(self, analysis_run_id, repository_url):
-            self.repo_path = tmp_path / "repo"
+            self.root = tmp_path / str(analysis_run_id)
+            self.repo_path = self.root / "repo"
             self.command_metadata = []
 
         def __enter__(self):
-            (self.repo_path / "docker-log-watcher-agent").mkdir(parents=True)
+            self.root.mkdir(parents=True, exist_ok=True)
             return self
 
         def __exit__(self, exc_type, exc, traceback):
@@ -323,6 +337,7 @@ def test_coverage_gate_runs_commands_in_configured_working_directory(
 
         def checkout(self, revision):
             commands.append(("checkout", revision, "."))
+            (self.repo_path / "docker-log-watcher-agent").mkdir(parents=True)
 
         def run(self, command, working_directory="."):
             commands.append(("run", command, working_directory))
@@ -347,33 +362,42 @@ def test_coverage_gate_runs_commands_in_configured_working_directory(
             )
             return SimpleNamespace(timed_out=False, exit_code=0)
 
-    monkeypatch.setattr(coverage_gate, "RunnerWorkspace", FakeRunnerWorkspace)
-
-    result = coverage_gate.run_coverage_gate(
-        analysis_run=SimpleNamespace(
-            id=uuid4(),
-            head_sha="head-sha",
-            pull_request_snapshot_json={"base_sha": "base-sha"},
-            changed_files_snapshot_json=[
-                {"filename": "docker-log-watcher-agent/main.py"}
-            ],
-        ),
-        repository=SimpleNamespace(owner="FelipeTorresHora", name="nested-repo"),
-        quality_config=SimpleNamespace(
-            min_total_coverage=0,
-            max_coverage_drop=100,
-            min_changed_files_coverage=0,
-        ),
-        coverage_config=SimpleNamespace(
-            language=SimpleNamespace(value="python"),
-            install_command="pip install -r requirements.txt",
-            test_command="pytest --cov=. --cov-report=xml:coverage.xml",
-            report_path="coverage.xml",
-            report_format=SimpleNamespace(value="cobertura_xml"),
-            working_directory="docker-log-watcher-agent",
-        ),
-        repository_token="token",
+    monkeypatch.setattr(
+        analysis_evidence_workspace,
+        "RunnerWorkspace",
+        FakeRunnerWorkspace,
     )
+
+    analysis_run = SimpleNamespace(
+        id=uuid4(),
+        head_sha="head-sha",
+        pull_request_snapshot_json={"base_sha": "base-sha"},
+        changed_files_snapshot_json=[
+            {"filename": "docker-log-watcher-agent/main.py"}
+        ],
+    )
+    with analysis_evidence_workspace.GateExecutionEvidenceWorkspace(
+        analysis_run=analysis_run,
+        repository=SimpleNamespace(owner="FelipeTorresHora", name="nested-repo"),
+        repository_token="token",
+    ) as evidence_workspace:
+        result = coverage_gate.run_coverage_gate(
+            analysis_run=analysis_run,
+            quality_config=SimpleNamespace(
+                min_total_coverage=0,
+                max_coverage_drop=100,
+                min_changed_files_coverage=0,
+            ),
+            coverage_config=SimpleNamespace(
+                language=SimpleNamespace(value="python"),
+                install_command="pip install -r requirements.txt",
+                test_command="pytest --cov=. --cov-report=xml:coverage.xml",
+                report_path="coverage.xml",
+                report_format=SimpleNamespace(value="cobertura_xml"),
+                working_directory="docker-log-watcher-agent",
+            ),
+            evidence_workspace=evidence_workspace,
+        )
 
     assert result.snapshot["status"] == "pass"
     assert (
