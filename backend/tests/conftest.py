@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -23,12 +24,20 @@ from app.main import app  # noqa: E402
 @pytest.fixture
 def reset_database():
     try:
-        Base.metadata.drop_all(bind=engine)
+        _reset_public_schema()
         Base.metadata.create_all(bind=engine)
     except OperationalError as exc:
         pytest.skip(f"PostgreSQL test database is not available: {exc}")
     yield
-    Base.metadata.drop_all(bind=engine)
+    _reset_public_schema()
+
+
+def _reset_public_schema():
+    with engine.begin() as connection:
+        connection.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+        connection.execute(text("CREATE SCHEMA public"))
+        connection.execute(text("GRANT ALL ON SCHEMA public TO pr_quality"))
+        connection.execute(text("GRANT ALL ON SCHEMA public TO public"))
 
 
 @pytest.fixture

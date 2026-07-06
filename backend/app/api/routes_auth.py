@@ -1,9 +1,8 @@
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_csrf_token
-from app.core.config import get_settings
 from app.db.session import get_db
 from app.schemas.auth import CurrentUserRead
 from app.services import github_oauth_service, session_service
@@ -25,8 +24,8 @@ def get_me(current_user: AuthenticatedUser = Depends(get_current_user)):
 
 
 @router.get("/github/login")
-def github_login():
-    return RedirectResponse(github_oauth_service.build_login_url())
+def github_login(db: Session = Depends(get_db)):
+    return RedirectResponse(github_oauth_service.build_login_url(db))
 
 
 @router.get("/github/callback")
@@ -37,33 +36,22 @@ def github_callback(
 ):
     user = github_oauth_service.exchange_code_for_user(code, state, db)
     created = session_service.create_session(db, user)
-    settings = get_settings()
+    settings = session_service.get_settings()
     response = RedirectResponse(settings.frontend_origin)
-    response.set_cookie(
-        settings.session_cookie_name,
-        created.cookie_value,
-        httponly=True,
-        secure=settings.session_cookie_secure,
-        samesite="lax",
-        path="/",
-    )
-    response.set_cookie(
-        "qg_csrf",
-        created.csrf_token,
-        httponly=False,
-        secure=settings.session_cookie_secure,
-        samesite="lax",
-        path="/",
-    )
+    session_service.set_session_cookies(response, created)
     return response
 
 
 @router.post("/logout")
 def logout(
+    request: Request,
     response: Response,
     _csrf: None = Depends(require_csrf_token),
+    db: Session = Depends(get_db),
 ):
-    settings = get_settings()
-    response.delete_cookie(settings.session_cookie_name, path="/")
-    response.delete_cookie("qg_csrf", path="/")
+    cookie_value = request.cookies.get(
+        session_service.get_settings().session_cookie_name
+    )
+    session_service.revoke_session(db, cookie_value)
+    session_service.clear_session_cookies(response)
     return {"status": "ok"}

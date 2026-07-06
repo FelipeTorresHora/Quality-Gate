@@ -297,6 +297,60 @@ def test_execute_reuses_prepared_head_workspace_across_enabled_gates(
     assert checkouts.count("base123") == 1
 
 
+def test_execute_marks_runner_timeout_as_operational_error(
+    repository,
+    monkeypatch,
+    tmp_path,
+):
+    run_id = _create_run(repository)
+
+    from app.services import analysis_evidence_workspace, runner_service
+
+    class TimeoutRunnerWorkspace:
+        def __init__(self, analysis_run_id, repository_url):
+            self.root = tmp_path / str(analysis_run_id)
+            self.repo_path = self.root / "repo"
+            self.command_metadata = []
+
+        def __enter__(self):
+            self.root.mkdir(parents=True, exist_ok=True)
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def checkout(self, revision):
+            self.repo_path.mkdir(parents=True, exist_ok=True)
+
+        def run(self, command, working_directory="."):
+            result = runner_service.CommandResult(
+                command=command,
+                exit_code=None,
+                stdout="",
+                stderr="",
+                duration_seconds=600,
+                timed_out=True,
+                adapter="isolated",
+                resource_limits={"timeout_seconds": 600},
+            )
+            self.command_metadata.append(result.to_snapshot())
+            return result
+
+    monkeypatch.setattr(
+        analysis_evidence_workspace,
+        "RunnerWorkspace",
+        TimeoutRunnerWorkspace,
+    )
+
+    run = _execute(run_id)
+
+    assert run["status"] == "error"
+    assert run["decision"] is None
+    assert "Coverage" in run["error_message"]
+    assert run["coverage_result_json"]["commands"][0]["timed_out"] is True
+    assert run["coverage_result_json"]["commands"][0]["runner_adapter"] == "isolated"
+
+
 def test_execute_pending_run_stores_generated_ai_review_and_score(
     repository, monkeypatch
 ):

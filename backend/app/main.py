@@ -12,10 +12,11 @@ from app.api import (
     routes_quality_gate,
     routes_repositories,
 )
-from app.core.config import get_settings
+from app.core.config import get_settings, validate_runtime_security_settings
 from app.core.errors import AppError, app_error_handler
 
 settings = get_settings()
+validate_runtime_security_settings(settings)
 
 app = FastAPI(title=settings.app_name)
 app.add_exception_handler(AppError, app_error_handler)

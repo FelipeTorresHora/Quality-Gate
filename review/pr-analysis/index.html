@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Review — Análise de Pull Request</title>
+<style>
+  :root{
+    --bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#e6edf3;--muted:#9da7b3;
+    --crit:#f85149;--high:#ff8c42;--med:#e3b341;--low:#58a6ff;--ok:#3fb950;
+    --accent:#7c93ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",Roboto,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
+  .wrap{max-width:1040px;margin:0 auto;padding:40px 24px 80px}
+  h1{font-size:30px;margin:0 0 6px}
+  h2{font-size:21px;margin:38px 0 14px;border-bottom:1px solid var(--border);padding-bottom:8px}
+  .sub{color:var(--muted);margin:0 0 28px}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin:16px 0}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  table{width:100%;border-collapse:collapse;margin:8px 0}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+  td code{background:#0d1117;border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:12.5px}
+  .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;white-space:nowrap}
+  .b-crit{background:rgba(248,81,73,.16);color:var(--crit);border:1px solid var(--crit)}
+  .b-high{background:rgba(255,140,66,.16);color:var(--high);border:1px solid var(--high)}
+  .b-med{background:rgba(227,179,65,.16);color:var(--med);border:1px solid var(--med)}
+  .b-low{background:rgba(88,166,255,.16);color:var(--low);border:1px solid var(--low)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:18px 0}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px 20px}
+  .card .n{font-size:34px;font-weight:800}
+  .card .l{color:var(--muted);font-size:13px}
+  .tag{font-size:12px;color:var(--muted)}
+  ul{padding-left:20px}
+  .pill{font-size:12px;padding:2px 8px;border:1px solid var(--border);border-radius:6px;color:var(--muted)}
+  footer{color:var(--muted);font-size:13px;margin-top:48px;border-top:1px solid var(--border);padding-top:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Review profundo — Funcionalidade de Análise de Pull Request</h1>
+  <p class="sub">PR Quality Gate Dashboard · Revisão de lógica, regras de negócio, débito técnico e segurança · 30/06/2026</p>
+
+  <div class="panel">
+    <strong>Por que a análise falha em produção (resposta curta)</strong>
+    <p>O pipeline de análise (<code>execute_analysis_run</code>) executa <em>clone + instalação de dependências + suíte de testes + scanners + IA</em> de forma <strong>síncrona dentro da requisição HTTP</strong>, e depende de binários externos (<code>npm</code>, <code>node</code>, <code>go</code>, <code>git</code>, <code>pytest</code>, scanners) rodando via <code>subprocess</code>. O deploy de produção é <strong>serverless na Vercel</strong> (<code>vercel.json → experimentalServices.backend</code>), onde:</p>
+    <ul>
+      <li>O <code>Dockerfile</code> (que instala git/go/node/npm) <strong>não é usado</strong> — a Vercel usa o builder Python dela, sem esses binários.</li>
+      <li>O sistema de arquivos é <strong>somente-leitura exceto <code>/tmp</code></strong>, então o <code>install_command</code> padrão (<code>pip install -r requirements.txt</code>) falha.</li>
+      <li><code>maxDuration = 300s</code>, mas <code>command_timeout_seconds = 600s</code> e o pipeline roda inteiro na request → a função é morta antes de terminar → <strong>504 / FUNCTION_INVOCATION_TIMEOUT</strong>.</li>
+    </ul>
+    <p>Detalhe completo em <a href="01-erro-producao.html">01 — Erro em produção (root cause)</a>.</p>
+  </div>
+
+  <h2>Resumo por severidade</h2>
+  <div class="cards">
+    <div class="card"><div class="n" style="color:var(--crit)">4</div><div class="l">Crítico</div></div>
+    <div class="card"><div class="n" style="color:var(--high)">5</div><div class="l">Alto</div></div>
+    <div class="card"><div class="n" style="color:var(--med)">5</div><div class="l">Médio</div></div>
+    <div class="card"><div class="n" style="color:var(--low)">2</div><div class="l">Baixo</div></div>
+  </div>
+
+  <h2>Relatórios</h2>
+  <table>
+    <tr><th>Relatório</th><th>Conteúdo</th><th>Itens</th></tr>
+    <tr><td><a href="01-erro-producao.html">01 — Erro em produção</a></td><td>Causa-raiz do erro ao rodar em produção; o que conserta o workflow</td><td>PA-01 … PA-05</td></tr>
+    <tr><td><a href="02-logica-negocio.html">02 — Lógica &amp; Negócio</a></td><td>Corretude da máquina de estados, regras de cobertura, reuso de runs</td><td>PA-06 … PA-10</td></tr>
+    <tr><td><a href="03-debito-tecnico.html">03 — Débito técnico</a></td><td>Duplicação, downloads repetidos, acoplamento, robustez</td><td>PA-15 … PA-18</td></tr>
+    <tr><td><a href="04-seguranca.html">04 — Segurança</a></td><td>Vazamento de segredos, RCE sem sandbox, command injection</td><td>PA-11 … PA-14</td></tr>
+  </table>
+
+  <h2>Catálogo completo de achados</h2>
+  <table>
+    <tr><th>ID</th><th>Severidade</th><th>Resumo</th><th>Local</th></tr>
+    <tr><td>PA-01</td><td><span class="badge b-crit">Crítico</span></td><td>Runtime serverless não tem toolchain (npm/node/go/git) nem FS gravável → gates de cobertura/segurança não executam</td><td><code>runner_service.py</code>, <code>vercel.json</code></td></tr>
+    <tr><td>PA-02</td><td><span class="badge b-crit">Crítico</span></td><td>Pipeline inteiro roda síncrono na request HTTP → timeout do gateway/função</td><td><code>routes_repositories.py:97</code>, <code>analysis_execution_service.py:19</code></td></tr>
+    <tr><td>PA-11</td><td><span class="badge b-crit">Crítico</span></td><td><code>SESSION_SECRET</code> e <code>TOKEN_ENCRYPTION_KEY</code> vazam para o ambiente do subprocess não-confiável</td><td><code>runner_service.py:287</code></td></tr>
+    <tr><td>PA-12</td><td><span class="badge b-crit">Crítico</span></td><td>Execução de código arbitrário do repositório analisado sem sandbox/isolamento no servidor da app</td><td><code>runner_service.py:249</code></td></tr>
+    <tr><td>PA-03</td><td><span class="badge b-high">Alto</span></td><td><code>command_timeout_seconds=600</code> &gt; <code>maxDuration=300</code> → função morta no meio; run trava em RUNNING</td><td><code>config.py:37</code>, <code>vercel.json:10</code></td></tr>
+    <tr><td>PA-04</td><td><span class="badge b-high">Alto</span></td><td>Webhook executa via <code>BackgroundTasks</code>; em serverless a task é morta após a resposta → análise nunca completa</td><td><code>github_webhook_service.py:110</code></td></tr>
+    <tr><td>PA-05</td><td><span class="badge b-high">Alto</span></td><td>Download do archive bate direto no <code>codeload</code> com <code>Authorization: Bearer</code> → 404/403 para repositórios privados</td><td><code>runner_service.py:142</code></td></tr>
+    <tr><td>PA-06</td><td><span class="badge b-high">Alto</span></td><td>Exceção não tratada após <code>status=RUNNING</code> deixa o run preso para sempre (guard só aceita PENDING/ERROR)</td><td><code>analysis_execution_service.py:39</code></td></tr>
+    <tr><td>PA-08</td><td><span class="badge b-high">Alto</span></td><td>Cobertura instala e roda a suíte inteira para base <em>e</em> head (4 comandos pesados) → principal causa de timeout</td><td><code>coverage_gate.py:49-50</code></td></tr>
+    <tr><td>PA-07</td><td><span class="badge b-med">Médio</span></td><td>Arquivo alterado ausente no relatório de cobertura conta como 0% (média simples) → falha de gate falsa</td><td><code>coverage_gate.py:110-114</code></td></tr>
+    <tr><td>PA-09</td><td><span class="badge b-med">Médio</span></td><td>Mismatch de paths (GitHub relativo × path do relatório de cobertura) torna a cobertura de arquivos alterados não confiável</td><td><code>coverage_gate.py:108</code></td></tr>
+    <tr><td>PA-10</td><td><span class="badge b-med">Médio</span></td><td>Analisador de funções de linguagens de chave conta <code>{</code> em strings/comentários → débito técnico incorreto</td><td><code>technical_debt_gate.py:203</code></td></tr>
+    <tr><td>PA-13</td><td><span class="badge b-med">Médio</span></td><td><code>install_command</code>/<code>test_command</code> configuráveis executados com <code>shell=True</code>; saída persistida pode conter segredos</td><td><code>runner_service.py:258</code></td></tr>
+    <tr><td>PA-15</td><td><span class="badge b-med">Médio</span></td><td>Sem <code>try/finally</code> de cleanup; funções <code>create_or_reuse_*</code> duplicadas</td><td><code>analysis_service.py</code></td></tr>
+    <tr><td>PA-14</td><td><span class="badge b-low">Baixo</span></td><td><code>redacted_command</code> só redige o token do clone; saída de scanner fica sem redação no snapshot</td><td><code>runner_service.py:241</code></td></tr>
+    <tr><td>PA-16</td><td><span class="badge b-low">Baixo</span></td><td>Cada gate re-baixa o mesmo head SHA (até 4 downloads/extrações do mesmo commit)</td><td>gates/*</td></tr>
+  </table>
+
+  <h2>Onde estão as correções</h2>
+  <p>Arquivos de correção, com código pronto para aplicar e a ordem de prioridade, em <a href="fixes/README.md">fixes/README.md</a>:</p>
+  <ul>
+    <li><a href="fixes/README.md">README.md</a> — plano priorizado (o que fazer para o workflow funcionar)</li>
+    <li><a href="fixes/01-execucao-assincrona.md">01-execucao-assincrona.md</a> — tirar o pipeline da request (worker/fila) <span class="pill">PA-02, PA-04</span></li>
+    <li><a href="fixes/02-runner-ambiente-e-toolchain.md">02-runner-ambiente-e-toolchain.md</a> — runtime com toolchain + FS gravável <span class="pill">PA-01, PA-03</span></li>
+    <li><a href="fixes/03-vazamento-segredos.md">03-vazamento-segredos.md</a> — fechar o vazamento de <code>SESSION_SECRET</code>/<code>TOKEN_ENCRYPTION_KEY</code> <span class="pill">PA-11, PA-12, PA-13</span></li>
+    <li><a href="fixes/04-estado-run-e-archive.md">04-estado-run-e-archive.md</a> — RUNNING preso + download de archive privado <span class="pill">PA-05, PA-06</span></li>
+    <li><a href="fixes/05-logica-cobertura.md">05-logica-cobertura.md</a> — cobertura base/head, paths, arquivos ausentes <span class="pill">PA-07, PA-08, PA-09</span></li>
+  </ul>
+
+  <footer>
+    Gerado por revisão de código assistida (Claude Code) · escopo: funcionalidade de Análise de Pull Request · branch <code>main</code>.
+    Severidades refletem impacto em produção; corretude &gt; limpeza quando há conflito de prioridade.
+  </footer>
+</div>
+</body>
+</html>

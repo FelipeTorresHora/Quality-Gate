@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>01 — Erro em produção (root cause)</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#e6edf3;--muted:#9da7b3;--crit:#f85149;--high:#ff8c42;--med:#e3b341;--low:#58a6ff;--ok:#3fb950;--accent:#7c93ff}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",Roboto,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
+  .wrap{max-width:1040px;margin:0 auto;padding:36px 24px 80px}
+  h1{font-size:27px;margin:0 0 6px}
+  h2{font-size:20px;margin:34px 0 12px;border-bottom:1px solid var(--border);padding-bottom:8px}
+  h3{font-size:16px;margin:22px 0 8px}
+  .sub{color:var(--muted);margin:0 0 24px}
+  a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+  .finding{background:var(--panel);border:1px solid var(--border);border-left-width:4px;border-radius:8px;padding:18px 22px;margin:20px 0}
+  .finding.crit{border-left-color:var(--crit)}
+  .finding.high{border-left-color:var(--high)}
+  .finding.med{border-left-color:var(--med)}
+  .finding h3{margin-top:0}
+  .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700}
+  .b-crit{background:rgba(248,81,73,.16);color:var(--crit);border:1px solid var(--crit)}
+  .b-high{background:rgba(255,140,66,.16);color:var(--high);border:1px solid var(--high)}
+  .b-med{background:rgba(227,179,65,.16);color:var(--med);border:1px solid var(--med)}
+  code{background:#0d1117;border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:12.5px}
+  pre{background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:14px 16px;overflow:auto;font-size:12.5px;line-height:1.5}
+  pre code{border:0;padding:0;background:none}
+  .k{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em;margin:14px 0 4px;font-weight:600}
+  table{width:100%;border-collapse:collapse;margin:8px 0}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top;font-size:14px}
+  th{color:var(--muted);font-weight:600}
+  .nav{margin:0 0 24px}
+  blockquote{margin:12px 0;padding:10px 16px;border-left:3px solid var(--accent);background:rgba(124,147,255,.08);border-radius:0 6px 6px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="nav"><a href="index.html">← Índice</a></div>
+  <h1>01 — Por que a análise de PR falha em produção</h1>
+  <p class="sub">Causa-raiz e o que precisa ser feito para o workflow rodar. Achados PA-01 a PA-05.</p>
+
+  <h2>Modelo mental: o que o pipeline realmente faz</h2>
+  <p>Tanto a análise manual (<code>POST /api/repositories/{id}/pull-requests/{n}/analyze</code>) quanto o re-run (<code>POST /api/analysis-runs/{id}/execute</code>) chamam <code>analysis_execution_service.execute_analysis_run</code>, que <strong>na própria thread da requisição</strong>:</p>
+  <ol>
+    <li>Gera token de instalação do GitHub App.</li>
+    <li>Para cobertura: baixa o repositório no <code>base_sha</code> <em>e</em> no <code>head_sha</code>, roda <code>install_command</code> e <code>test_command</code> em cada um, e parseia o relatório.</li>
+    <li>Para segurança: baixa o head, roda <code>semgrep</code>, <code>detect-secrets</code> e (em Python) <code>bandit</code> e <code>pip-audit</code> via <code>subprocess</code>.</li>
+    <li>Para débito técnico: baixa o head de novo e parseia arquivos.</li>
+    <li>Gera review de IA (OpenAI) e monta o relatório final.</li>
+  </ol>
+  <p>O deploy de produção é <strong>serverless na Vercel</strong>:</p>
+  <pre><code>// vercel.json
+"backend": { "entrypoint": "backend/main.py", "routePrefix": "/server", "maxDuration": 300 }</code></pre>
+  <blockquote>O <code>backend/Dockerfile</code> que instala <code>git</code>, <code>golang-go</code>, <code>nodejs</code> e <code>npm</code> <strong>só é usado pelo docker-compose local</strong>. A Vercel ignora esse Dockerfile e empacota a função com o builder Python — sem esses binários e com filesystem somente-leitura (exceto <code>/tmp</code>).</blockquote>
+
+  <div class="finding crit">
+    <h3>PA-01 — O runtime de produção não tem o toolchain nem filesystem gravável que o runner exige <span class="badge b-crit">Crítico</span></h3>
+    <div class="k">Local</div>
+    <code>backend/app/services/runner_service.py</code> (<code>run_command</code>, linha 249) · <code>coverage_gate._run_revision_coverage</code> · <code>security_gate._scanner_commands</code>
+    <div class="k">Mecanismo</div>
+    <p>Os gates fazem <code>subprocess.run(command, shell=True)</code> com comandos que pressupõem um ambiente de CI completo:</p>
+    <ul>
+      <li><b>Cobertura</b>: <code>install_command</code> padrão = <code>pip install -r requirements.txt</code> (grava em <code>site-packages</code>, que é <b>somente-leitura</b> na Vercel → falha). Para repos TS/JS/Go, exige <code>npm</code>/<code>go</code> que <b>não existem</b> na função.</li>
+      <li><b>Segurança</b>: <code>semgrep --config=auto</code> baixa regras da internet e precisa do binário; <code>detect-secrets</code>/<code>bandit</code>/<code>pip-audit</code> são entry-points que podem não estar no <code>PATH</code> da função.</li>
+    </ul>
+    <div class="k">Cenário concreto</div>
+    <p>Repositório Python padrão → cobertura roda <code>pip install -r requirements.txt</code> → <code>OSError: [Errno 30] Read-only file system</code> → <code>RunnerError("Coverage install command failed.")</code> → o run termina em <code>ERROR</code> com "Gate execution failed". Repositório Node/Go → <code>install</code>/<code>test</code> retornam <code>127 command not found</code> → mesmo desfecho. <b>Nenhuma análise consegue passar do gate de cobertura em produção.</b></p>
+    <div class="k">Evidência histórica</div>
+    <p>O commit <code>df6cd5c "fix: fetch PR analysis revisions without git binary"</code> já mostra que a equipe bateu nessa parede com o <code>git</code>. A mesma ausência de binário/FS afeta <code>pip</code>/<code>npm</code>/<code>go</code>/scanners.</p>
+    <div class="k">Correção</div>
+    <p>Mover a execução para um runtime que tem o toolchain e disco gravável (worker container dedicado, ou GitHub Actions como executor). Ver <a href="fixes/02-runner-ambiente-e-toolchain.md">fixes/02</a>.</p>
+  </div>
+
+  <div class="finding crit">
+    <h3>PA-02 — O pipeline inteiro roda síncrono dentro da requisição HTTP <span class="badge b-crit">Crítico</span></h3>
+    <div class="k">Local</div>
+    <code>backend/app/api/routes_repositories.py:97</code> e <code>routes_analysis.py:63</code> → <code>execute_analysis_run</code>
+    <pre><code>if run.status == AnalysisRunStatus.PENDING:
+    return analysis_execution_service.execute_analysis_run(db, run.id)  # bloqueia a request</code></pre>
+    <div class="k">Mecanismo</div>
+    <p>Clonar + instalar dependências + rodar a suíte de testes (duas vezes: base e head) + scanners + chamada à OpenAI levam, no caso real, de dezenas de segundos a vários minutos. Tudo isso acontece antes de a rota responder. A função serverless tem <code>maxDuration=300s</code> e o cliente do frontend (<code>fetch</code>) não tem timeout estendido.</p>
+    <div class="k">Cenário concreto</div>
+    <p>Usuário clica "Analisar PR" → a request fica pendurada → a função estoura <code>maxDuration</code> → <b>504 / FUNCTION_INVOCATION_TIMEOUT</b>. O <code>AnalysisRun</code> fica preso em <code>RUNNING</code> (ver PA-06) e o frontend mostra erro genérico.</p>
+    <div class="k">Correção</div>
+    <p>A rota deve apenas enfileirar o run e responder <code>202</code> imediatamente; um worker assíncrono executa o pipeline; o frontend faz polling do status. Ver <a href="fixes/01-execucao-assincrona.md">fixes/01</a>.</p>
+  </div>
+
+  <div class="finding high">
+    <h3>PA-03 — <code>command_timeout_seconds</code> (600s) é maior que <code>maxDuration</code> (300s) <span class="badge b-high">Alto</span></h3>
+    <div class="k">Local</div>
+    <code>backend/app/core/config.py:37</code> (<code>command_timeout_seconds: int = 600</code>) vs <code>vercel.json:10</code> (<code>maxDuration: 300</code>)
+    <div class="k">Mecanismo</div>
+    <p>Um único comando pode ser autorizado a rodar por 600s, mas a função é morta aos 300s. Como o pipeline encadeia 4+ comandos (install+test para base e head), o tempo total quase sempre ultrapassa 300s. O processo é morto <b>no meio de um <code>subprocess</code></b>, sem cair em nenhum <code>except</code> — o run nunca é marcado como <code>ERROR</code> e fica preso em <code>RUNNING</code>.</p>
+    <div class="k">Correção</div>
+    <p>Em qualquer arquitetura, o timeout efetivo de toda a análise deve ser menor que o limite do runtime que a hospeda. Com worker dedicado, alinhar <code>command_timeout_seconds</code> e um teto global do pipeline. Ver <a href="fixes/02-runner-ambiente-e-toolchain.md">fixes/02</a>.</p>
+  </div>
+
+  <div class="finding high">
+    <h3>PA-04 — Execução via <code>BackgroundTasks</code> do webhook é morta após a resposta em serverless <span class="badge b-high">Alto</span></h3>
+    <div class="k">Local</div>
+    <code>backend/app/services/github_webhook_service.py:108-112</code>
+    <pre><code>if created_new:
+    if background_tasks is not None:
+        background_tasks.add_task(_execute_run_by_id, run.id)   # roda DEPOIS da resposta
+    else:
+        analysis_execution_service.execute_analysis_run(db, run.id)</code></pre>
+    <div class="k">Mecanismo</div>
+    <p>O <code>BackgroundTasks</code> do Starlette roda <b>depois</b> de a resposta ser enviada, mas dentro da mesma invocação. Em serverless, a plataforma congela/encerra a função assim que a resposta HTTP é entregue, então a task de análise iniciada é interrompida antes de terminar (ou nem começa). O webhook responde <code>202</code> alegremente e o run fica em <code>PENDING</code>/<code>RUNNING</code> para sempre.</p>
+    <div class="k">Cenário concreto</div>
+    <p>Pull Request aberto → GitHub envia <code>pull_request.opened</code> → backend cria o run e agenda a task → responde 202 → função encerra → análise nunca executa. Para o usuário, "criei o PR mas nada aconteceu".</p>
+    <div class="k">Correção</div>
+    <p>Mesma solução de PA-02: enfileirar em fila/worker durável, nunca depender de trabalho pós-resposta no serverless. Ver <a href="fixes/01-execucao-assincrona.md">fixes/01</a>.</p>
+  </div>
+
+  <div class="finding high">
+    <h3>PA-05 — Download do archive bate direto no <code>codeload</code> com Bearer token → falha em repos privados <span class="badge b-high">Alto (plausível)</span></h3>
+    <div class="k">Local</div>
+    <code>backend/app/services/runner_service.py:142-179</code> (<code>download_repository_archive</code>)
+    <pre><code>archive_url = f"https://codeload.github.com/{owner}/{name}/tar.gz/{revision}"
+request = urllib.request.Request(archive_url, headers=_github_archive_headers(token))
+# headers["Authorization"] = f"Bearer {token}"</code></pre>
+    <div class="k">Mecanismo</div>
+    <p>O caminho documentado/estável para baixar tarball com token de App é <code>GET https://api.github.com/repos/{owner}/{repo}/tarball/{ref}</code>, que responde <code>302</code> para uma URL <code>codeload</code> <b>assinada</b> (token na query, expira em segundos). Bater direto no host <code>codeload</code> com header <code>Authorization: Bearer</code> não é o fluxo suportado para conteúdo privado e frequentemente retorna <b>404</b> (o GitHub trata repo privado como inexistente quando a auth não é aceita naquele host).</p>
+    <div class="k">Cenário concreto</div>
+    <p>Repositório privado → <code>HTTP 404 Not Found</code> capturado como <code>HTTPError</code> → <code>RunnerError("Repository checkout failed...")</code> → todos os gates que precisam de checkout falham. Repositórios públicos funcionam, o que pode mascarar o bug em testes manuais.</p>
+    <div class="k">Como confirmar</div>
+    <p>Tentar a análise em um repositório privado e inspecionar <code>coverage_result_json.commands[].stderr</code> — se aparecer <code>HTTP 404</code> no download, é isto.</p>
+    <div class="k">Correção</div>
+    <p>Usar o endpoint <code>/repos/{owner}/{repo}/tarball/{ref}</code> da API e seguir o redirect (sem reenviar o header <code>Authorization</code> para o host assinado). Ver <a href="fixes/04-estado-run-e-archive.md">fixes/04</a>.</p>
+  </div>
+
+  <h2>Resumo: o que destrava o workflow</h2>
+  <table>
+    <tr><th>#</th><th>Ação</th><th>Resolve</th></tr>
+    <tr><td>1</td><td>Tirar o pipeline da request: enfileirar + worker durável + polling de status</td><td>PA-02, PA-04</td></tr>
+    <tr><td>2</td><td>Executar a análise num runtime com toolchain e disco gravável (worker container ou GitHub Actions), <b>não</b> na função serverless</td><td>PA-01, PA-03</td></tr>
+    <tr><td>3</td><td>Baixar o tarball via API <code>/tarball/{ref}</code> com redirect</td><td>PA-05</td></tr>
+    <tr><td>4</td><td>Envolver o pipeline em <code>try/finally</code> que sempre fecha o estado do run</td><td>PA-06 (ver relatório 02)</td></tr>
+  </table>
+  <p style="margin-top:18px"><a href="index.html">← Índice</a> · <a href="02-logica-negocio.html">Próximo: Lógica &amp; Negócio →</a></p>
+</div>
+</body>
+</html>

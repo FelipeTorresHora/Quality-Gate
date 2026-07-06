@@ -1,14 +1,84 @@
 from datetime import UTC, datetime, timedelta
 
 import jwt
+import pytest
+from fastapi import Response
 
+from app.core.config import Settings, validate_runtime_security_settings
+from app.core.errors import AppError
 from app.models.github_app_installation import GitHubAppInstallation
 from app.models.installation_repository import InstallationRepository
 from app.models.repository import Repository
 from app.models.user import User
 from app.models.user_repository_access import UserRepositoryAccess
 from app.models.user_session import UserSession
-from app.services import session_service, token_crypto_service
+from app.services import github_oauth_service, session_service, token_crypto_service
+
+
+def test_production_rejects_default_session_secret():
+    settings = Settings(
+        app_env="production",
+        session_secret="change-me",
+        token_encryption_key="valid-token-key",
+    )
+
+    with pytest.raises(RuntimeError, match="SESSION_SECRET"):
+        validate_runtime_security_settings(settings)
+
+
+def test_oauth_state_expires(reset_database, db_session):
+    created = github_oauth_service.create_oauth_state(
+        db_session, ttl=timedelta(seconds=-1)
+    )
+
+    with pytest.raises(AppError) as exc:
+        github_oauth_service.consume_oauth_state(db_session, created.state)
+
+    assert exc.value.code == "github_oauth_state_invalid"
+
+
+def test_oauth_state_is_single_use(reset_database, db_session):
+    created = github_oauth_service.create_oauth_state(
+        db_session, ttl=timedelta(minutes=10)
+    )
+
+    github_oauth_service.consume_oauth_state(db_session, created.state)
+
+    with pytest.raises(AppError) as exc:
+        github_oauth_service.consume_oauth_state(db_session, created.state)
+
+    assert exc.value.code == "github_oauth_state_invalid"
+
+
+def test_cookie_policy_helper_sets_secure_flags(monkeypatch):
+    monkeypatch.setenv("SESSION_COOKIE_SECURE", "true")
+    session_service.get_settings.cache_clear()
+    response = Response()
+    created = session_service.CreatedSession(
+        cookie_value="session-cookie",
+        csrf_token="csrf-token",
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+
+    session_service.set_session_cookies(response, created)
+
+    set_cookie_headers = [
+        value.decode("latin-1")
+        for key, value in response.raw_headers
+        if key == b"set-cookie"
+    ]
+    session_cookie = next(
+        header for header in set_cookie_headers if header.startswith("qg_session=")
+    )
+    csrf_cookie = next(
+        header for header in set_cookie_headers if header.startswith("qg_csrf=")
+    )
+    assert "HttpOnly" in session_cookie
+    assert "Secure" in session_cookie
+    assert "SameSite=lax" in session_cookie
+    assert "HttpOnly" not in csrf_cookie
+    assert "Secure" in csrf_cookie
+    session_service.get_settings.cache_clear()
 
 
 def test_user_session_and_repository_access_models_persist(reset_database, db_session):
@@ -94,15 +164,17 @@ def test_create_session_returns_raw_cookie_once(reset_database, db_session):
     assert created.cookie_value
     assert created.csrf_token
     assert created.expires_at > datetime.now(UTC)
-    assert db_session.query(UserSession).count() == 0
-    current_user = session_service.get_user_for_session(created.cookie_value)
+    assert db_session.query(UserSession).count() == 1
+    current_user = session_service.get_user_for_session(
+        created.cookie_value, db_session
+    )
     assert current_user.id == user.id
     assert current_user.github_user_id == 1
     assert current_user.github_login == "octocat"
     assert current_user.has_github_connection is False
 
 
-def test_revoke_session_is_noop_for_stateless_session(reset_database, db_session):
+def test_revoke_session_invalidates_stored_session(reset_database, db_session):
     user = User(github_user_id=1, github_login="octocat")
     db_session.add(user)
     db_session.commit()
@@ -112,7 +184,9 @@ def test_revoke_session_is_noop_for_stateless_session(reset_database, db_session
 
     session_service.revoke_session(db_session, created.cookie_value)
 
-    assert session_service.get_user_for_session(created.cookie_value).id == user.id
+    assert session_service.get_user_for_session(
+        created.cookie_value, db_session
+    ) is None
 
 
 def test_expired_session_is_rejected(reset_database, db_session):
@@ -176,7 +250,7 @@ def test_me_requires_authentication(client):
     assert response.json()["detail"]["code"] == "authentication_required"
 
 
-def test_logout_with_valid_stateless_csrf_deletes_cookies(client, db_session):
+def test_logout_revokes_session_when_store_enabled(client, db_session):
     user = User(github_user_id=1, github_login="octocat")
     db_session.add(user)
     db_session.commit()
@@ -190,7 +264,10 @@ def test_logout_with_valid_stateless_csrf_deletes_cookies(client, db_session):
     )
 
     assert response.status_code == 200
-    assert db_session.query(UserSession).count() == 0
+    assert db_session.query(UserSession).one().revoked_at is not None
+    assert session_service.get_user_for_session(
+        created.cookie_value, db_session
+    ) is None
 
 
 def test_logout_rejects_missing_stateless_csrf(client, db_session):
@@ -207,7 +284,7 @@ def test_logout_rejects_missing_stateless_csrf(client, db_session):
     assert response.json()["detail"]["code"] == "csrf_token_invalid"
 
 
-def test_login_redirects_to_github(monkeypatch, client):
+def test_login_redirects_to_github(monkeypatch, client, reset_database):
     monkeypatch.setenv("GITHUB_APP_CLIENT_ID", "client-id")
     monkeypatch.setenv(
         "AUTH_CALLBACK_URL",

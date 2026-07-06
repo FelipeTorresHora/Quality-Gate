@@ -71,7 +71,13 @@ def installation_token(monkeypatch):
     )
 
 
-def _create_run(repository, *, status=AnalysisRunStatus.COMPLETED, decision=GateDecision.PASS):
+def _create_run(
+    repository,
+    *,
+    status=AnalysisRunStatus.COMPLETED,
+    decision=GateDecision.PASS,
+    final_report_markdown="# AI Quality Gate: PASS\n\nReport body.",
+):
     with SessionLocal() as db:
         run = AnalysisRun(
             repository_id=repository["id"],
@@ -80,7 +86,7 @@ def _create_run(repository, *, status=AnalysisRunStatus.COMPLETED, decision=Gate
             status=status,
             decision=decision,
             trigger_source=AnalysisTriggerSource.GITHUB_WEBHOOK,
-            final_report_markdown="# AI Quality Gate: PASS\n\nReport body.",
+            final_report_markdown=final_report_markdown,
             pull_request_snapshot_json={
                 "number": 42,
                 "title": "Add feature",
@@ -208,6 +214,55 @@ def test_publish_creates_marked_pull_request_comment(
     assert created["pr_number"] == 42
     assert response.json()["comment"]["published"] is True
     assert response.json()["comment"]["html_url"] == "https://github.com/comment/100"
+
+
+def test_publish_redacts_pull_request_comment_body(
+    client,
+    publication_repository,
+    monkeypatch,
+):
+    run_id = _create_run(
+        publication_repository,
+        final_report_markdown=(
+            "# AI Quality Gate: FAIL\n\n"
+            "Token leaked: github_pat_abcdefghijklmnopqrstuv_wxyz1234567890\n"
+        ),
+    )
+    _set_publish_flags(
+        client,
+        publication_repository,
+        comment=True,
+        status=False,
+    )
+    created = {}
+
+    from app.services.github_service import GitHubClient
+
+    monkeypatch.setattr(
+        GitHubClient,
+        "list_issue_comments",
+        lambda self, owner, name, pr_number: [],
+    )
+
+    def fake_create(self, owner, name, pr_number, body):
+        created["body"] = body
+        return {"id": 100, "html_url": "https://github.com/comment/100"}
+
+    monkeypatch.setattr(GitHubClient, "create_issue_comment", fake_create)
+
+    response = client.post(
+        f"/api/analysis-runs/{run_id}/publish-github",
+        cookies={
+            "qg_session": publication_repository["cookie"],
+            "qg_csrf": publication_repository["csrf_token"],
+        },
+        headers={"X-CSRF-Token": publication_repository["csrf_token"]},
+    )
+
+    assert response.status_code == 200
+    assert "github_pat_abcdefghijklmnopqrstuv" not in created["body"]
+    assert "***REDACTED***" in created["body"]
+    assert f"<!-- ai-quality-gate:analysis-run:{run_id} -->" in created["body"]
 
 
 def test_publish_updates_existing_marked_pull_request_comment(
