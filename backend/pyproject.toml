@@ -17,5 +17,6 @@ dependencies = [
     "PyJWT>=2.10",
     "semgrep>=1.75",
     "SQLAlchemy>=2.0",
+    "vercel>=0.2",
     "uvicorn[standard]>=0.32",
 ]
