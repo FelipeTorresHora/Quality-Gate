@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Harness Upgrade - LangGraph + LangSmith</title>
+<style>
+  :root {
+    --bg: #101214;
+    --surface: #181c20;
+    --surface-2: #20262b;
+    --line: #343c44;
+    --text: #edf1f5;
+    --muted: #a9b4bf;
+    --accent: #4cc9a7;
+    --accent-2: #f2c94c;
+    --risk: #ff6b6b;
+    --info: #8ab4ff;
+    --code: #0b0d0f;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    color: var(--text);
+    background: var(--bg);
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+    line-height: 1.58;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .page {
+    max-width: 1160px;
+    margin: 0 auto;
+    padding: 36px 24px 72px;
+  }
+
+  header {
+    padding: 34px 0 24px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .eyebrow {
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    margin: 0 0 10px;
+  }
+
+  h1 {
+    margin: 0;
+    max-width: 940px;
+    font-size: 36px;
+    line-height: 1.15;
+    letter-spacing: 0;
+  }
+
+  .lead {
+    max-width: 880px;
+    margin: 16px 0 0;
+    color: var(--muted);
+    font-size: 17px;
+  }
+
+  .meta {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+  }
+
+  .pill {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    padding: 4px 10px;
+    font-size: 12px;
+    background: var(--surface);
+  }
+
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    margin: 26px 0 8px;
+  }
+
+  .metric {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 18px;
+    min-height: 124px;
+  }
+
+  .metric strong {
+    display: block;
+    font-size: 26px;
+    line-height: 1;
+    margin-bottom: 10px;
+    color: var(--accent-2);
+  }
+
+  .metric span {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  nav {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 18px 0 6px;
+  }
+
+  nav a {
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 10px;
+    background: var(--surface);
+    font-size: 13px;
+  }
+
+  section { margin-top: 36px; }
+
+  h2 {
+    font-size: 22px;
+    margin: 0 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+    letter-spacing: 0;
+  }
+
+  h3 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    letter-spacing: 0;
+  }
+
+  p { margin: 0 0 12px; }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 18px 20px;
+  }
+
+  .panel.highlight {
+    border-color: rgba(76, 201, 167, .45);
+    background: #15201f;
+  }
+
+  .panel.warning {
+    border-color: rgba(255, 107, 107, .45);
+    background: #21191a;
+  }
+
+  .label {
+    display: inline-block;
+    margin-bottom: 8px;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  ul {
+    margin: 8px 0 0;
+    padding-left: 19px;
+  }
+
+  li { margin: 6px 0; }
+
+  code {
+    font-family: "SF Mono", Consolas, "Liberation Mono", monospace;
+    font-size: .92em;
+    color: #d8e2ec;
+    background: var(--code);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  .flow {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .node {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px;
+    min-height: 136px;
+    position: relative;
+  }
+
+  .node::after {
+    content: "";
+    position: absolute;
+    right: -10px;
+    top: 50%;
+    width: 10px;
+    border-top: 1px solid var(--line);
+  }
+
+  .node:last-child::after { display: none; }
+
+  .node b { display: block; margin-bottom: 7px; }
+  .node small { color: var(--muted); display: block; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  th, td {
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--line);
+    padding: 12px 14px;
+  }
+
+  tr:last-child td { border-bottom: 0; }
+
+  th {
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    background: #15191d;
+  }
+
+  .tag {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid var(--line);
+    color: var(--muted);
+    margin-right: 4px;
+    margin-bottom: 4px;
+  }
+
+  .tag.green { color: var(--accent); border-color: rgba(76, 201, 167, .65); }
+  .tag.amber { color: var(--accent-2); border-color: rgba(242, 201, 76, .65); }
+  .tag.red { color: var(--risk); border-color: rgba(255, 107, 107, .65); }
+  .tag.blue { color: var(--info); border-color: rgba(138, 180, 255, .65); }
+
+  .roadmap {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .phase {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px;
+  }
+
+  .phase .num {
+    color: var(--accent-2);
+    font-weight: 800;
+    font-size: 22px;
+  }
+
+  footer {
+    color: var(--muted);
+    border-top: 1px solid var(--line);
+    margin-top: 44px;
+    padding-top: 18px;
+    font-size: 13px;
+  }
+
+  @media (max-width: 920px) {
+    .summary, .grid-3, .roadmap { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-2, .flow { grid-template-columns: 1fr; }
+    .node::after { display: none; }
+  }
+
+  @media (max-width: 560px) {
+    .page { padding: 24px 16px 52px; }
+    h1 { font-size: 29px; }
+    .summary, .grid-3, .roadmap { grid-template-columns: 1fr; }
+    th, td { display: block; width: 100%; }
+    th { display: none; }
+    td { border-bottom: 0; padding: 10px 14px; }
+    tr { display: block; border-bottom: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <p class="eyebrow">Quality Gate AI Harness</p>
+    <h1>Subir o harness para LangGraph + tool calling + LangSmith sem perder a decisão determinística dos gates</h1>
+    <p class="lead">
+      Hoje a IA gera um snapshot estruturado no final do pipeline. O próximo nível é transformar essa camada em um
+      harness de engenharia: ferramentas tipadas, grafo com estado, rastreabilidade por execução, avaliações
+      regressivas e revisão humana quando o risco justificar.
+    </p>
+    <div class="meta">
+      <span class="pill">Base: <code>backend/app/services/agent/quality_agent.py</code></span>
+      <span class="pill">ADR: IA não decide o gate final</span>
+      <span class="pill">Destino: LangGraph + LangSmith</span>
+      <span class="pill">Data: 2026-07-04</span>
+    </div>
+    <div class="summary">
+      <div class="metric"><strong>1</strong><span>orquestrador por grafo para revisar evidências, chamar ferramentas e emitir snapshot</span></div>
+      <div class="metric"><strong>8</strong><span>ferramentas iniciais para contexto, diff, findings, segurança, cobertura e publicação</span></div>
+      <div class="metric"><strong>4</strong><span>camadas de qualidade: schemas, guardrails, evals e observabilidade</span></div>
+      <div class="metric"><strong>0</strong><span>mudança na regra final: gates objetivos continuam decidindo PASS/FAIL</span></div>
+    </div>
+  </header>
+
+  <nav aria-label="Indice">
+    <a href="#diagnostico">Diagnostico</a>
+    <a href="#arquitetura">Arquitetura alvo</a>
+    <a href="#tools">Tool calling</a>
+    <a href="#langsmith">LangSmith</a>
+    <a href="#roadmap">Roadmap</a>
+    <a href="#fontes">Fontes</a>
+  </nav>
+
+  <section id="diagnostico">
+    <h2>Diagnostico Atual</h2>
+    <div class="grid-2">
+      <div class="panel">
+        <span class="label">Como esta hoje</span>
+        <ul>
+          <li><code>generate_ai_review_snapshot</code> chama <code>ChatOpenAI</code> uma vez com <code>with_structured_output</code>.</li>
+          <li>O input vem de <code>build_ai_review_input</code>: PR, arquivos alterados, diff truncado, resultados dos gates, findings e configuracoes.</li>
+          <li>O output e validado por <code>AIReviewGenerated</code> e salvo em <code>analysis_run.ai_review_json</code>.</li>
+          <li>A decisao final segue a ADR 0032: a IA explica, mas nao aprova nem reprova o PR.</li>
+        </ul>
+      </div>
+      <div class="panel warning">
+        <span class="label">Limitacoes do harness atual</span>
+        <ul>
+          <li>Sem ferramentas: o modelo recebe um pacote grande e nao consegue buscar contexto sob demanda.</li>
+          <li>Sem estado explicito: nao ha etapas observaveis como planejar, recuperar contexto, validar citacoes e gerar comentario.</li>
+          <li>Sem replay detalhado: falhas retornam <code>AIReviewError</code>, mas nao mostram qual etapa quebrou.</li>
+          <li>Sem avaliacao regressiva: mudancas de prompt/modelo podem alterar qualidade sem alarme.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="arquitetura">
+    <h2>Arquitetura Alvo</h2>
+    <div class="panel highlight">
+      <p>
+        A recomendacao e manter os gates deterministicos como fonte de verdade e colocar LangGraph em volta da
+        camada de explicacao, investigacao e publicacao. O grafo nao decide o gate; ele produz uma revisao auditavel,
+        com referencias para evidencias persistidas e rastros no LangSmith.
+      </p>
+    </div>
+    <div class="flow" aria-label="Fluxo LangGraph proposto">
+      <div class="node">
+        <b>1. Load Evidence</b>
+        <small>Carrega <code>AnalysisRun</code>, findings, snapshots dos gates, diff truncado, config e metadados do PR.</small>
+      </div>
+      <div class="node">
+        <b>2. Plan Tool Calls</b>
+        <small>Define quais ferramentas usar: contexto de arquivo, detalhes de cobertura, findings bloqueantes, seguranca e comentario.</small>
+      </div>
+      <div class="node">
+        <b>3. Investigate</b>
+        <small>Executa tools tipadas com limites: sem shell arbitrario, sem segredos, sem alterar decisao dos gates.</small>
+      </div>
+      <div class="node">
+        <b>4. Synthesize</b>
+        <small>Gera <code>AIReviewGenerated</code>, valida schema, checa contradicoes e registra trace no LangSmith.</small>
+      </div>
+    </div>
+    <div class="grid-3" style="margin-top:16px">
+      <div class="panel">
+        <span class="label">Estado do grafo</span>
+        <p><code>AIReviewState</code> deve conter <code>run_id</code>, <code>evidence</code>, <code>tool_results</code>, <code>risk_notes</code>, <code>draft</code>, <code>validation_errors</code> e <code>final_snapshot</code>.</p>
+      </div>
+      <div class="panel">
+        <span class="label">Persistencia</span>
+        <p>Usar checkpointer persistente em Postgres para retomar uma revisao apos falha, inspecionar estado e reproduzir execucoes por <code>thread_id = analysis_run.id</code>.</p>
+      </div>
+      <div class="panel">
+        <span class="label">Guardrails</span>
+        <p>Um no final valida que o texto nao contradiz <code>run.decision</code>, nao menciona segredos e so cita arquivos/linhas presentes nas evidencias ou tools.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tools">
+    <h2>Tool Calling de Alto Nivel</h2>
+    <table>
+      <thead>
+        <tr><th>Tool</th><th>Responsabilidade</th><th>Contrato</th><th>Ganho</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>get_gate_summary</code></td>
+          <td>Resumo objetivo de coverage, security e technical debt.</td>
+          <td><span class="tag green">read-only</span><span class="tag blue">AnalysisRun</span></td>
+          <td>Evita o modelo reinterpretar snapshots brutos.</td>
+        </tr>
+        <tr>
+          <td><code>list_blocking_findings</code></td>
+          <td>Retorna findings bloqueantes com categoria, severidade, arquivo e linha.</td>
+          <td><span class="tag green">read-only</span><span class="tag amber">citado no output</span></td>
+          <td>Forca explicacoes ancoradas em evidencias.</td>
+        </tr>
+        <tr>
+          <td><code>get_changed_file_context</code></td>
+          <td>Busca contexto limitado de arquivos alterados e hunk relevante.</td>
+          <td><span class="tag green">bounded</span><span class="tag blue">max chars</span></td>
+          <td>Reduz prompt gigante e melhora precisao em PRs grandes.</td>
+        </tr>
+        <tr>
+          <td><code>inspect_coverage_evidence</code></td>
+          <td>Explica cobertura total, cobertura alterada, queda e arquivos sem match.</td>
+          <td><span class="tag green">deterministic</span></td>
+          <td>Transforma numeros em narrativa sem inventar calculo.</td>
+        </tr>
+        <tr>
+          <td><code>inspect_security_evidence</code></td>
+          <td>Normaliza resultados de Bandit, pip-audit, detect-secrets e Semgrep.</td>
+          <td><span class="tag red">redacted</span></td>
+          <td>Mantem segredos fora do trace e do comentario.</td>
+        </tr>
+        <tr>
+          <td><code>rank_review_risks</code></td>
+          <td>Ordena riscos por impacto no merge, confianca e facilidade de correcao.</td>
+          <td><span class="tag amber">policy-aware</span></td>
+          <td>Produz comentario mais util para o autor do PR.</td>
+        </tr>
+        <tr>
+          <td><code>validate_review_snapshot</code></td>
+          <td>Confere schema, decision lock, referencias e ausencia de termos proibidos.</td>
+          <td><span class="tag green">required</span></td>
+          <td>Cria uma barreira objetiva antes de persistir o JSON.</td>
+        </tr>
+        <tr>
+          <td><code>build_github_comment</code></td>
+          <td>Formata o comentario final sem chamar GitHub diretamente.</td>
+          <td><span class="tag blue">dry-run first</span></td>
+          <td>Separa geracao de texto de publicacao real.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="langsmith">
+    <h2>LangSmith Como Sistema de Engenharia</h2>
+    <div class="grid-2">
+      <div class="panel">
+        <span class="label">Observabilidade</span>
+        <ul>
+          <li>Ativar <code>LANGSMITH_TRACING=true</code>, <code>LANGSMITH_API_KEY</code> e <code>LANGSMITH_PROJECT</code>.</li>
+          <li>Adicionar metadados: <code>analysis_run_id</code>, repo, PR, head SHA, decisao, modelo, gates habilitados e versao do prompt.</li>
+          <li>Separar spans por no do grafo e por tool call para saber onde latencia, custo e falhas acontecem.</li>
+          <li>Criar dashboards para taxa de erro de IA, latencia p95, tokens por PR e taxa de validacao rejeitada.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <span class="label">Evals e datasets</span>
+        <ul>
+          <li>Dataset inicial com runs reais anonimizados: PASS limpo, FAIL por cobertura, FAIL por seguranca, erro operacional e PR grande.</li>
+          <li>Avaliadores: nao contradizer gate, citar findings reais, nao vazar segredo, score dentro de faixa, sugestoes acionaveis.</li>
+          <li>Rodar eval antes de trocar prompt/modelo e como teste de regressao no CI.</li>
+          <li>Usar feedback humano dos comentarios para calibrar ranking de riscos.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Decisoes de Arquitetura</h2>
+    <table>
+      <thead>
+        <tr><th>Decisao</th><th>Recomendacao</th><th>Motivo</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Grafo customizado ou agente prebuilt?</td>
+          <td>Comecar com <code>StateGraph</code> customizado.</td>
+          <td>O produto tem politica forte: a IA explica evidencias, mas nao decide. Grafo explicito deixa essa fronteira clara.</td>
+        </tr>
+        <tr>
+          <td>Tools podem executar comandos?</td>
+          <td>Nao no primeiro ciclo.</td>
+          <td>O runner ja executa gates deterministicos. Tools da IA devem ser read-only e baseadas em dados persistidos.</td>
+        </tr>
+        <tr>
+          <td>Human-in-the-loop?</td>
+          <td>Sim, mas so para publicacao ou achados de baixa confianca.</td>
+          <td>Permite revisar comentario antes de publicar sem bloquear a execucao objetiva do gate.</td>
+        </tr>
+        <tr>
+          <td>Trocar decisao por AI score?</td>
+          <td>Nao.</td>
+          <td>Preserva a ADR 0032 e evita regressao de confiabilidade. O score e sinal explicativo, nao autoridade.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="roadmap">
+    <h2>Roadmap Pragmatico</h2>
+    <div class="roadmap">
+      <div class="phase">
+        <div class="num">01</div>
+        <h3>Instrumentar</h3>
+        <p>Ativar LangSmith no fluxo atual, com tags e metadados. Sem LangGraph ainda.</p>
+        <span class="tag green">baixo risco</span>
+      </div>
+      <div class="phase">
+        <div class="num">02</div>
+        <h3>Extrair tools</h3>
+        <p>Criar tools read-only em cima dos snapshots e findings. Testar contratos com Pydantic.</p>
+        <span class="tag blue">base tecnica</span>
+      </div>
+      <div class="phase">
+        <div class="num">03</div>
+        <h3>Introduzir LangGraph</h3>
+        <p>Substituir chamada unica por grafo: load, plan, investigate, synthesize, validate.</p>
+        <span class="tag amber">mudanca central</span>
+      </div>
+      <div class="phase">
+        <div class="num">04</div>
+        <h3>Fechar qualidade</h3>
+        <p>Datasets, evals, prompt versioning, alertas e opcao de revisao humana antes de publicar.</p>
+        <span class="tag green">maturidade</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Backlog de Melhorias</h2>
+    <div class="grid-3">
+      <div class="panel">
+        <span class="label">Confiabilidade</span>
+        <ul>
+          <li>Fallback para snapshot atual se o grafo falhar.</li>
+          <li>Retry por no, nao por pipeline inteiro.</li>
+          <li>Timeout por tool e por revisao completa.</li>
+          <li>Validacao deterministica antes de persistir.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <span class="label">Qualidade de review</span>
+        <ul>
+          <li>Comentarios com citacoes de findings reais.</li>
+          <li>Sumario separado por bloqueante, alerta e melhoria.</li>
+          <li>Score calibrado por severidade e confianca.</li>
+          <li>Explicacao curta para autores e versao detalhada no dashboard.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <span class="label">Operacao</span>
+        <ul>
+          <li>Traces pesquisaveis por PR e SHA.</li>
+          <li>Evals no CI para prompts e modelos.</li>
+          <li>Alertas de aumento de custo, erro e latencia.</li>
+          <li>Retencao e redacao de dados sensiveis.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="fontes">
+    <h2>Fontes e Referencias</h2>
+    <div class="panel">
+      <ul>
+        <li><a href="https://docs.langchain.com/oss/python/langgraph/overview">LangGraph overview</a>: grafo para agentes stateful, execucao duravel, streaming, human-in-the-loop e persistencia.</li>
+        <li><a href="https://docs.langchain.com/oss/python/langgraph/persistence">LangGraph persistence</a>: checkpointers para estado de thread e stores para memoria de longo prazo.</li>
+        <li><a href="https://docs.langchain.com/oss/python/langchain/tools">LangChain tools</a>: ferramentas como funcoes tipadas com schemas, contexto, estado, store e streaming.</li>
+        <li><a href="https://docs.langchain.com/langsmith/observability">LangSmith Observability</a>: traces, dashboards, alertas, automacoes, feedback e avaliacao.</li>
+        <li>Codigo local: <code>backend/app/services/agent/quality_agent.py</code>, <code>backend/app/services/agent/prompts.py</code>, <code>backend/app/services/agent/schemas.py</code>, <code>docs/adr/0032-keep-langchain-out-of-final-gate-decision.md</code>.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    Relatorio criado para orientar a evolucao do PR Quality Gate Dashboard. O caminho recomendado e incremental:
+    observar primeiro, extrair ferramentas, trocar a chamada unica por LangGraph e so entao fechar evals/automacoes.
+  </footer>
+</div>
+</body>
+</html>
+

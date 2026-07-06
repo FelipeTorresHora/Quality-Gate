@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc">
+  <title id="title">Arquitetura atual do harness de analise de Pull Request</title>
+  <desc id="desc">Fluxo atual da analise de Pull Request com API serverless, Postgres, fila em tabela, worker, executor de gates e pontos de falha.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#8b949e"/>
+    </marker>
+    <marker id="badArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#f85149"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#010409" flood-opacity="0.32"/>
+    </filter>
+    <style>
+      .bg{fill:#0d1117}
+      .title{font:700 38px Segoe UI,Arial,sans-serif;fill:#f0f6fc}
+      .subtitle{font:400 18px Segoe UI,Arial,sans-serif;fill:#9da7b3}
+      .section{font:700 16px Segoe UI,Arial,sans-serif;fill:#7d8590;letter-spacing:.08em}
+      .box{fill:#161b22;stroke:#30363d;stroke-width:2;rx:14;filter:url(#shadow)}
+      .box2{fill:#111820;stroke:#30363d;stroke-width:2;rx:14}
+      .boxBlue{fill:#12203a;stroke:#2f81f7;stroke-width:2;rx:14;filter:url(#shadow)}
+      .boxYellow{fill:#241a08;stroke:#d29922;stroke-width:2;rx:14;filter:url(#shadow)}
+      .boxRed{fill:#2a1014;stroke:#f85149;stroke-width:2;rx:14;filter:url(#shadow)}
+      .label{font:700 22px Segoe UI,Arial,sans-serif;fill:#f0f6fc}
+      .body{font:400 16px Segoe UI,Arial,sans-serif;fill:#c9d1d9}
+      .small{font:400 14px Segoe UI,Arial,sans-serif;fill:#9da7b3}
+      .code{font:600 14px Consolas,Menlo,monospace;fill:#a5d6ff}
+      .risk{font:700 15px Segoe UI,Arial,sans-serif;fill:#ffebe9}
+      .riskMuted{font:400 14px Segoe UI,Arial,sans-serif;fill:#ffdcd7}
+      .line{stroke:#8b949e;stroke-width:3;fill:none;marker-end:url(#arrow)}
+      .badLine{stroke:#f85149;stroke-width:3;fill:none;stroke-dasharray:9 8;marker-end:url(#badArrow)}
+      .thin{stroke:#484f58;stroke-width:2;fill:none}
+      .pill{fill:#21262d;stroke:#30363d;stroke-width:1;rx:16}
+      .pillText{font:700 13px Segoe UI,Arial,sans-serif;fill:#d2a8ff}
+      .warnIcon{fill:#f85149}
+    </style>
+  </defs>
+
+  <rect class="bg" width="1600" height="980"/>
+  <text class="title" x="70" y="72">Arquitetura atual - harness de analise de PR</text>
+  <text class="subtitle" x="70" y="108">Estado observado no codigo atual: API cria o run e enfileira; worker executa gates pesados contra repositorio externo.</text>
+
+  <text class="section" x="70" y="164">ENTRADA</text>
+  <rect class="boxBlue" x="70" y="190" width="275" height="145"/>
+  <text class="label" x="100" y="232">GitHub PR / Dashboard</text>
+  <text class="body" x="100" y="268">Webhook pull_request</text>
+  <text class="body" x="100" y="295">ou analise manual</text>
+  <text class="small" x="100" y="322">captura PR, diff e arquivos</text>
+
+  <text class="section" x="430" y="164">API WEB</text>
+  <rect class="boxYellow" x="430" y="190" width="310" height="145"/>
+  <text class="label" x="460" y="232">FastAPI na Vercel</text>
+  <text class="code" x="460" y="266">routes_repositories.py</text>
+  <text class="code" x="460" y="292">github_webhook_service.py</text>
+  <text class="small" x="460" y="322">retorna 202 depois de enfileirar</text>
+
+  <text class="section" x="825" y="164">ESTADO</text>
+  <rect class="box" x="825" y="190" width="335" height="145"/>
+  <text class="label" x="855" y="232">Postgres</text>
+  <text class="code" x="855" y="266">analysis_runs</text>
+  <text class="code" x="855" y="292">analysis_jobs</text>
+  <text class="small" x="855" y="322">fila simples: queued/running</text>
+
+  <text class="section" x="1240" y="164">EXECUCAO</text>
+  <rect class="boxRed" x="1240" y="190" width="290" height="145"/>
+  <text class="label" x="1270" y="232">Worker separado</text>
+  <text class="code" x="1270" y="266">python -m app.worker</text>
+  <text class="small" x="1270" y="294">presente no docker-compose</text>
+  <text class="risk" x="1270" y="322">nao aparece no vercel.json</text>
+
+  <path class="line" d="M345 262 C375 262 395 262 430 262"/>
+  <text class="small" x="360" y="244">1</text>
+  <path class="line" d="M740 262 C775 262 790 262 825 262"/>
+  <text class="small" x="765" y="244">2</text>
+  <path class="line" d="M1160 262 C1195 262 1210 262 1240 262"/>
+  <text class="small" x="1180" y="244">3</text>
+
+  <text class="section" x="70" y="402">PIPELINE DENTRO DO WORKER</text>
+  <rect class="box" x="70" y="430" width="1460" height="325"/>
+
+  <rect class="box2" x="105" y="475" width="245" height="220"/>
+  <text class="label" x="130" y="515">claim_next()</text>
+  <text class="code" x="130" y="548">analysis_queue.py</text>
+  <text class="body" x="130" y="584">UPDATE job para running</text>
+  <text class="small" x="130" y="615">sem lease, attempt,</text>
+  <text class="small" x="130" y="640">succeeded ou failed</text>
+
+  <rect class="box2" x="410" y="475" width="275" height="220"/>
+  <text class="label" x="435" y="515">execute_analysis_run</text>
+  <text class="code" x="435" y="548">analysis_execution_service.py</text>
+  <text class="body" x="435" y="584">marca RUNNING</text>
+  <text class="body" x="435" y="611">gera token GitHub App</text>
+  <text class="small" x="435" y="640">orquestra gates em serie</text>
+
+  <rect class="box2" x="745" y="475" width="310" height="220"/>
+  <text class="label" x="770" y="515">Gates</text>
+  <text class="code" x="770" y="548">coverage/security/debt</text>
+  <text class="body" x="770" y="584">cobertura base/head</text>
+  <text class="body" x="770" y="611">scanners de seguranca</text>
+  <text class="body" x="770" y="638">regras de debito tecnico</text>
+
+  <rect class="box2" x="1115" y="475" width="370" height="220"/>
+  <text class="label" x="1140" y="515">RunnerWorkspace</text>
+  <text class="code" x="1140" y="548">runner_service.py</text>
+  <text class="body" x="1140" y="584">baixa tarball GitHub</text>
+  <text class="body" x="1140" y="611">executa shell=True</text>
+  <text class="small" x="1140" y="640">depende de git/node/npm/go/scanners</text>
+
+  <path class="line" d="M350 585 C375 585 390 585 410 585"/>
+  <path class="line" d="M685 585 C710 585 725 585 745 585"/>
+  <path class="line" d="M1055 585 C1085 585 1095 585 1115 585"/>
+  <path class="line" d="M1300 475 C1300 432 1220 412 1110 407 C940 400 785 410 668 468"/>
+  <text class="small" x="1078" y="420">resultado parcial volta ao run</text>
+
+  <text class="section" x="70" y="817">PONTOS QUE AINDA EXPLICAM FALHA</text>
+  <rect class="boxRed" x="70" y="840" width="460" height="92"/>
+  <circle class="warnIcon" cx="105" cy="875" r="12"/>
+  <text class="risk" x="128" y="872">Worker nao e parte do deploy Vercel</text>
+  <text class="riskMuted" x="128" y="900">a API enfileira, mas nada garante consumidor duravel em producao.</text>
+
+  <rect class="boxRed" x="570" y="840" width="455" height="92"/>
+  <circle class="warnIcon" cx="605" cy="875" r="12"/>
+  <text class="risk" x="628" y="872">Job pode ficar preso em running</text>
+  <text class="riskMuted" x="628" y="900">sem lease/finalizacao/retry; ON CONFLICT bloqueia reenfileirar.</text>
+
+  <rect class="boxRed" x="1065" y="840" width="465" height="92"/>
+  <circle class="warnIcon" cx="1100" cy="875" r="12"/>
+  <text class="risk" x="1123" y="872">Runner ainda exige runtime pesado</text>
+  <text class="riskMuted" x="1123" y="900">toolchain, disco gravavel, tempo longo e isolamento de codigo externo.</text>
+
+  <path class="badLine" d="M1385 335 C1385 365 1385 385 1385 430"/>
+  <text class="small" x="1215" y="380">falha se o worker</text>
+  <text class="small" x="1215" y="402">nao existe ou morre</text>
+</svg>

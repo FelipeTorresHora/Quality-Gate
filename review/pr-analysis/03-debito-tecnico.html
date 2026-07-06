@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>03 — Débito Técnico</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#e6edf3;--muted:#9da7b3;--high:#ff8c42;--med:#e3b341;--low:#58a6ff;--accent:#7c93ff}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",Roboto,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
+  .wrap{max-width:1040px;margin:0 auto;padding:36px 24px 80px}
+  h1{font-size:27px;margin:0 0 6px}
+  h2{font-size:20px;margin:34px 0 12px;border-bottom:1px solid var(--border);padding-bottom:8px}
+  h3{font-size:16px;margin:0 0 8px}
+  .sub{color:var(--muted);margin:0 0 24px}
+  a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+  .finding{background:var(--panel);border:1px solid var(--border);border-left-width:4px;border-radius:8px;padding:18px 22px;margin:20px 0}
+  .finding.med{border-left-color:var(--med)}
+  .finding.low{border-left-color:var(--low)}
+  .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700}
+  .b-med{background:rgba(227,179,65,.16);color:var(--med);border:1px solid var(--med)}
+  .b-low{background:rgba(88,166,255,.16);color:var(--low);border:1px solid var(--low)}
+  code{background:#0d1117;border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:12.5px}
+  pre{background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:14px 16px;overflow:auto;font-size:12.5px;line-height:1.5}
+  pre code{border:0;padding:0;background:none}
+  .k{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em;margin:14px 0 4px;font-weight:600}
+  .nav{margin:0 0 24px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="nav"><a href="index.html">← Índice</a></div>
+  <h1>03 — Débito Técnico</h1>
+  <p class="sub">Estrutura, duplicação e robustez do código de análise. Achados PA-15 a PA-18.</p>
+
+  <div class="finding med">
+    <h3>PA-15 — Sem cleanup transacional do estado do run; duplicação de <code>create_or_reuse_*</code> <span class="badge b-med">Médio</span></h3>
+    <div class="k">Local</div>
+    <code>analysis_execution_service.py</code> (sem <code>try/finally</code>) · <code>analysis_service.py</code> (<code>create_or_reuse_webhook_analysis_run</code> e <code>create_or_reuse_manual_analysis_run</code>)
+    <div class="k">Problema</div>
+    <p>As duas funções <code>create_or_reuse_webhook_analysis_run</code> (linha 57) e <code>create_or_reuse_manual_analysis_run</code> (linha 99) são quase idênticas — só diferem no <code>trigger_source</code>. Trinta linhas de construção de <code>AnalysisRun</code> repetidas. Qualquer campo novo precisa ser adicionado nos dois lugares (risco de divergência). Além disso, a ausência de <code>try/finally</code> em <code>execute_analysis_run</code> (ver PA-06) é débito de robustez: o estado <code>RUNNING</code> não tem garantia de fechamento.</p>
+    <div class="k">Correção</div>
+    <p>Extrair um <code>_build_analysis_run(repository_id, context_model, trigger_source)</code> compartilhado e parametrizar o <code>trigger_source</code>. Envolver o pipeline em <code>try/finally</code>. Ver <a href="fixes/04-estado-run-e-archive.md">fixes/04</a>.</p>
+  </div>
+
+  <div class="finding low">
+    <h3>PA-16 — Cada gate re-baixa e re-extrai o mesmo <code>head_sha</code> <span class="badge b-low">Baixo</span></h3>
+    <div class="k">Local</div>
+    <code>coverage_gate.py</code>, <code>security_gate.py:34</code>, <code>technical_debt_gate.py:47</code> — cada um cria seu próprio <code>RunnerWorkspace</code> e chama <code>workspace.checkout(head_sha)</code>
+    <div class="k">Problema</div>
+    <p>Para uma única análise, o mesmo commit head é baixado do <code>codeload</code> e extraído <b>até três vezes</b> (uma por gate), mais o base na cobertura — até 4 downloads/extrações do mesmo tarball. Desperdício de rede, CPU (descompressão gzip) e disco em <code>/tmp</code> (que é limitado no serverless). Também triplica a janela de exposição a falhas de rede.</p>
+    <div class="k">Correção</div>
+    <p>Fazer um único checkout do head (e, se necessário, do base) por análise e passar o workspace compartilhado aos gates, em vez de cada gate clonar de novo. Naturalmente alinhado ao worker dedicado de <a href="fixes/01-execucao-assincrona.md">fixes/01</a>.</p>
+  </div>
+
+  <div class="finding low">
+    <h3>PA-17 — Cache global mutável de token de instalação <span class="badge b-low">Baixo</span></h3>
+    <div class="k">Local</div>
+    <code>backend/app/services/github_app_auth_service.py:10</code> (<code>INSTALLATION_TOKEN_CACHE: dict[int, ...]</code>)
+    <div class="k">Problema</div>
+    <p>Cache em dicionário de módulo, mutável e sem lock. Em processo único funciona; com múltiplos workers/instâncias serverless cada instância tem o seu (sem ganho real), e há uma corrida benigna de escrita concorrente. Mais relevante: em serverless o processo é efêmero, então o cache quase nunca acerta — cada invocação gera um token novo, multiplicando chamadas a <code>POST /app/installations/{id}/access_tokens</code> (sujeito a rate limit do App).</p>
+    <div class="k">Correção</div>
+    <p>Mover o cache para um store compartilhado (DB/Redis) quando houver worker durável, ou aceitar e documentar o custo. Baixa prioridade até a arquitetura assíncrona existir.</p>
+  </div>
+
+  <div class="finding low">
+    <h3>PA-18 — Acoplamento direto dos gates ao <code>RunnerWorkspace</code> e a <code>subprocess</code> dificulta testes e troca de executor <span class="badge b-low">Baixo</span></h3>
+    <div class="k">Local</div>
+    <code>gates/*.py</code> importam <code>RunnerWorkspace</code> e montam comandos de shell diretamente.
+    <div class="k">Problema</div>
+    <p>Não há uma fronteira de "executor" (interface) entre a lógica de policy dos gates e o mecanismo que roda comandos. Isso (a) torna impossível migrar para um executor remoto — ex.: GitHub Actions — sem reescrever os três gates, e (b) obriga os testes a mockar <code>subprocess</code>/rede em vez de injetar um executor fake. O <code>security_gate</code> inclusive faz <code>import</code> de <code>runner_service</code> <em>dentro</em> da função (linha 17), sinal de dependência circular contornada na marra.</p>
+    <div class="k">Correção</div>
+    <p>Definir uma interface <code>Runner</code> (checkout + run) e injetá-la nos gates. Isso é o passo de "altitude" que destrava PA-01 (trocar serverless por executor com toolchain) sem tocar na lógica de policy. Ver <a href="fixes/02-runner-ambiente-e-toolchain.md">fixes/02</a>.</p>
+  </div>
+
+  <h2>Notas menores</h2>
+  <ul>
+    <li><code>_normalize_path</code> usa <code>lstrip("./")</code>, que remove <b>qualquer</b> combinação inicial de <code>.</code> e <code>/</code> (não só o prefixo <code>./</code>) — <code>".github/x"</code> vira <code>"github/x"</code>. Use <code>removeprefix("./")</code>.</li>
+    <li><code>GateResult.status</code> faz fallback para <code>"error"</code> quando a chave falta — robusto, mas mascara snapshots malformados em vez de falhar alto em desenvolvimento.</li>
+    <li>O <code>except (OSError, SyntaxError)</code> no tech-debt gate retorna <code>GateResult</code> de erro <em>de dentro do <code>with</code></em>, mas mantém findings parciais já coletados — comportamento ok, porém não documentado.</li>
+  </ul>
+  <p style="margin-top:18px"><a href="02-logica-negocio.html">← Lógica &amp; Negócio</a> · <a href="04-seguranca.html">Próximo: Segurança →</a></p>
+</div>
+</body>
+</html>

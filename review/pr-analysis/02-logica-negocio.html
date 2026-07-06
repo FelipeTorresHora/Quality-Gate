@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>02 — Lógica &amp; Regras de Negócio</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#e6edf3;--muted:#9da7b3;--crit:#f85149;--high:#ff8c42;--med:#e3b341;--low:#58a6ff;--ok:#3fb950;--accent:#7c93ff}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",Roboto,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
+  .wrap{max-width:1040px;margin:0 auto;padding:36px 24px 80px}
+  h1{font-size:27px;margin:0 0 6px}
+  h2{font-size:20px;margin:34px 0 12px;border-bottom:1px solid var(--border);padding-bottom:8px}
+  h3{font-size:16px;margin:0 0 8px}
+  .sub{color:var(--muted);margin:0 0 24px}
+  a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+  .finding{background:var(--panel);border:1px solid var(--border);border-left-width:4px;border-radius:8px;padding:18px 22px;margin:20px 0}
+  .finding.high{border-left-color:var(--high)}
+  .finding.med{border-left-color:var(--med)}
+  .finding.low{border-left-color:var(--low)}
+  .badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700}
+  .b-high{background:rgba(255,140,66,.16);color:var(--high);border:1px solid var(--high)}
+  .b-med{background:rgba(227,179,65,.16);color:var(--med);border:1px solid var(--med)}
+  .b-low{background:rgba(88,166,255,.16);color:var(--low);border:1px solid var(--low)}
+  code{background:#0d1117;border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:12.5px}
+  pre{background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:14px 16px;overflow:auto;font-size:12.5px;line-height:1.5}
+  pre code{border:0;padding:0;background:none}
+  .k{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em;margin:14px 0 4px;font-weight:600}
+  .nav{margin:0 0 24px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="nav"><a href="index.html">← Índice</a></div>
+  <h1>02 — Lógica &amp; Regras de Negócio</h1>
+  <p class="sub">Corretude da máquina de estados e das regras de cobertura/débito. Achados PA-06 a PA-10.</p>
+
+  <div class="finding high">
+    <h3>PA-06 — Exceção após <code>status=RUNNING</code> deixa o run preso para sempre <span class="badge b-high">Alto</span></h3>
+    <div class="k">Local</div>
+    <code>backend/app/services/analysis_execution_service.py:19-124</code>
+    <div class="k">Mecanismo</div>
+    <p>Em <code>execute_analysis_run</code>, a linha 39 marca <code>status = RUNNING</code> e commita (linha 51). A partir daí <b>não há <code>try/finally</code></b>. Se qualquer passo subsequente levantar uma exceção que os gates não capturam internamente — por exemplo <code>quality_agent</code> (captura tudo, ok), mas também <code>report_service.build_final_report</code>, um <code>db.commit()</code> que estoure, ou o kill por timeout de PA-03 — o run permanece em <code>RUNNING</code>. O guard de entrada só permite re-execução de <code>PENDING</code> ou <code>ERROR</code>:</p>
+    <pre><code>if run.status not in (AnalysisRunStatus.PENDING, AnalysisRunStatus.ERROR):
+    raise AppError(409, "analysis_run_not_pending", ...)</code></pre>
+    <div class="k">Cenário concreto</div>
+    <p>Timeout da Vercel (PA-03) mata a função no meio de um <code>subprocess</code> → o <code>except</code> dos gates nunca roda → o run fica <code>RUNNING</code> permanentemente → o botão "re-run" (commit <code>5bdd089</code>, que só liberou <code>ERROR</code>) retorna <b>409</b>. O usuário não consegue nem reanalisar nem limpar. Esse é exatamente o "trava em produção" relatado.</p>
+    <div class="k">Correção</div>
+    <p>Envolver todo o corpo em <code>try/except Exception</code> que chama <code>_finish_with_error</code>, e/ou permitir re-execução de runs <code>RUNNING</code> antigos (com guarda de "stale"). Ver <a href="fixes/04-estado-run-e-archive.md">fixes/04</a>.</p>
+  </div>
+
+  <div class="finding high">
+    <h3>PA-08 — Cobertura instala e roda a suíte inteira para base <em>e</em> head <span class="badge b-high">Alto</span></h3>
+    <div class="k">Local</div>
+    <code>backend/app/services/gates/coverage_gate.py:49-50</code>
+    <pre><code>base_report = _run_revision_coverage(workspace, base_sha, coverage_config)
+head_report = _run_revision_coverage(workspace, head_sha, coverage_config)</code></pre>
+    <p>Cada <code>_run_revision_coverage</code> faz checkout + <code>install_command</code> + <code>test_command</code> + parse. São <b>4 comandos pesados</b> por análise (2 instalações completas + 2 suítes de teste completas).</p>
+    <div class="k">Impacto de negócio</div>
+    <p>Além de dobrar custo/tempo (principal motor dos timeouts de PA-02/PA-03), recalcular a cobertura <b>total</b> da base a cada análise raramente agrega valor: a métrica que decide o gate de "changed files" usa só o head. A cobertura da base poderia vir de um snapshot/cache do último run no merge-base, não de uma re-execução completa.</p>
+    <div class="k">Correção</div>
+    <p>Rodar somente o head por padrão; tornar a medição da base opcional (só quando <code>max_coverage_drop</code> está configurado) e/ou cachear por SHA. Ver <a href="fixes/05-logica-cobertura.md">fixes/05</a>.</p>
+  </div>
+
+  <div class="finding med">
+    <h3>PA-07 — Arquivo alterado ausente do relatório conta como 0% de cobertura <span class="badge b-med">Médio</span></h3>
+    <div class="k">Local</div>
+    <code>backend/app/services/gates/coverage_gate.py:107-116</code>
+    <pre><code>for filename in source_files:
+    coverage = normalized_report.get(_normalize_path(filename))
+    if coverage is None:
+        percentages.append(0)      # ausente = 0%
+        continue
+    percentages.append(coverage.percentage)
+percentage = round(sum(percentages) / len(percentages), 2)   # média simples</code></pre>
+    <div class="k">Problema de regra</div>
+    <p>Dois defeitos combinados: (1) um arquivo-fonte alterado que <b>não aparece</b> no relatório de cobertura (porque não foi exercitado, ou porque o path não casou — ver PA-09) é tratado como 0%, derrubando a média; (2) a média é <b>simples por arquivo</b>, não ponderada por linhas, então um arquivo pequeno pesa igual a um grande. O resultado é "changed files coverage" instável e frequentemente injusto → falha de gate falsa.</p>
+    <div class="k">Cenário concreto</div>
+    <p>PR adiciona <code>migrations/0005.py</code> (sem testes, por design) + altera <code>core.py</code> (95% coberto). Média = (0 + 95)/2 = 47,5% → abaixo do mínimo → PR reprovado por engano.</p>
+    <div class="k">Correção</div>
+    <p>Distinguir "arquivo sem dados de cobertura" de "0% coberto" (excluir/ignorar, ou exigir match explícito), e ponderar por linhas cobertas/total. Ver <a href="fixes/05-logica-cobertura.md">fixes/05</a>.</p>
+  </div>
+
+  <div class="finding med">
+    <h3>PA-09 — Mismatch de paths entre GitHub e o relatório de cobertura <span class="badge b-med">Médio</span></h3>
+    <div class="k">Local</div>
+    <code>coverage_gate.py:108</code> (<code>_normalize_path</code>, linha 245) e <code>is_source_file</code>
+    <div class="k">Mecanismo</div>
+    <p>Os paths dos arquivos alterados vêm da API do GitHub, sempre relativos à raiz do repositório (<code>src/app/core.py</code>). Os paths do relatório de cobertura dependem da ferramenta: Cobertura emite <code>filename</code> relativo ao diretório de execução (pode ser <code>core.py</code> ou <code>app/core.py</code> dependendo do <code>working_directory</code>), lcov usa o path do source-root, go usa o import-path do módulo. <code>_normalize_path</code> só troca <code>\</code> por <code>/</code> e tira <code>./</code> — não reconcilia prefixos. Quando <code>working_directory != "."</code>, o relatório é gerado dentro do subdiretório e os paths quase nunca casam com os do GitHub.</p>
+    <div class="k">Impacto</div>
+    <p>Quase todo arquivo alterado vira "ausente" → 0% (ver PA-07) → cobertura de arquivos alterados sistematicamente subestimada em monorepos / projetos com <code>working_directory</code>.</p>
+    <div class="k">Correção</div>
+    <p>Normalizar ambos os lados pelo <code>working_directory</code> e casar por sufixo de path (basename + segmentos) com fallback. Ver <a href="fixes/05-logica-cobertura.md">fixes/05</a>.</p>
+  </div>
+
+  <div class="finding med">
+    <h3>PA-10 — Analisador de "função longa" para linguagens de chave é um contador ingênuo de <code>{}</code> <span class="badge b-med">Médio</span></h3>
+    <div class="k">Local</div>
+    <code>backend/app/services/gates/technical_debt_gate.py:187-222</code> (<code>analyze_brace_language_file</code>)
+    <pre><code>brace_depth = line.count("{") - line.count("}")
+while brace_depth > 0 and end_index + 1 < len(lines):
+    end_index += 1
+    brace_depth += lines[end_index].count("{") - lines[end_index].count("}")</code></pre>
+    <div class="k">Problema</div>
+    <p>Conta <code>{</code> e <code>}</code> textualmente, incluindo os que aparecem em <b>strings</b>, <b>template literals</b>, <b>regex</b> e <b>comentários</b> (<code>const re = /\{.*\}/;</code>, <code>`${x}`</code>, <code>// usa { }</code>). Em TS/JS isso é comum, então o cálculo de "linhas da função" fica errado — ora superestima, ora nunca fecha e engole o resto do arquivo como uma função gigante. O finding é <code>blocking=True</code>, ou seja, <b>reprova o PR</b> com base em uma medição incorreta.</p>
+    <div class="k">Cenário concreto</div>
+    <p>Arquivo TS com uma função de 5 linhas contendo <code>const s = "}";</code> → a contagem de chave fecha cedo ou tarde demais → "Function exceeds line limit" falso → PR bloqueado.</p>
+    <div class="k">Correção</div>
+    <p>Ou usar um parser real (ex.: <code>tree-sitter</code>) para linguagens de chave, ou rebaixar esse finding de <code>blocking</code> para informativo até existir parsing confiável. Ver <a href="fixes/05-logica-cobertura.md">fixes/05</a> (seção "débito técnico").</p>
+  </div>
+
+  <h2>Observações adicionais de negócio (menores)</h2>
+  <ul>
+    <li><b>Reuso por <code>(repo, pr_number, head_sha)</code>:</b> um run já concluído é reusado em vez de reanalisado — correto, mas significa que mudanças de <em>configuração</em> do quality gate (ex.: baixar <code>min_total_coverage</code>) não reavaliam um head já analisado. Documentar esse comportamento ou permitir "forçar reanálise".</li>
+    <li><b>Severidade do semgrep:</b> <code>_normalize_severity</code> mapeia <code>"error" → HIGH</code> e <code>"warning" → HIGH</code> (mesma severidade), achatando a distinção entre erro e aviso do semgrep.</li>
+    <li><b><code>_blocking_severities([])</code> retorna conjunto vazio</b> → se um admin configurar <code>security_fail_on = []</code>, nenhuma vulnerabilidade bloqueia, mas o gate ainda reporta "pass". Pode ser intencional, mas vale um aviso na UI.</li>
+  </ul>
+  <p style="margin-top:18px"><a href="01-erro-producao.html">← Erro em produção</a> · <a href="03-debito-tecnico.html">Próximo: Débito técnico →</a></p>
+</div>
+</body>
+</html>
