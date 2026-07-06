@@ -33,6 +33,47 @@ def test_list_repositories_returns_synced_repository(client, repository):
     assert repositories[0]["full_name"] == "horinha04/meu-projeto"
 
 
+def test_list_repositories_cache_miss_uses_user_scoped_key(
+    client, repository, monkeypatch
+):
+    writes = []
+    monkeypatch.setattr(
+        "app.api.routes_repositories.runtime_cache_service.get_json",
+        lambda key: None,
+    )
+    monkeypatch.setattr(
+        "app.api.routes_repositories.runtime_cache_service.set_json",
+        lambda key, value, ttl, tags: writes.append(
+            {"key": key, "value": value, "ttl": ttl, "tags": tags}
+        ),
+    )
+
+    response = client.get("/api/repositories")
+
+    assert response.status_code == 200
+    assert writes
+    assert writes[0]["key"].startswith("repositories:v1:user:")
+    assert writes[0]["ttl"] == 120
+    assert "repositories" in writes[0]["tags"]
+
+
+def test_get_repository_cache_hit_still_requires_access(
+    client, repository, monkeypatch
+):
+    cache_reads = []
+    monkeypatch.setattr(
+        "app.api.routes_repositories.runtime_cache_service.get_json",
+        lambda key: cache_reads.append(key) or {"id": repository["id"]},
+    )
+
+    response = client.get(
+        "/api/repositories/00000000-0000-0000-0000-000000000000"
+    )
+
+    assert response.status_code == 403
+    assert cache_reads == []
+
+
 def test_list_pull_requests_includes_not_run_review_state(
     client,
     repository,
@@ -50,6 +91,23 @@ def test_list_pull_requests_includes_not_run_review_state(
         "state": "not_run",
         "analysis_run": None,
     }
+
+
+def test_list_pull_requests_cache_hit_still_requires_access(
+    client, repository, monkeypatch
+):
+    cache_reads = []
+    monkeypatch.setattr(
+        "app.api.routes_repositories.runtime_cache_service.get_json",
+        lambda key: cache_reads.append(key) or [],
+    )
+
+    response = client.get(
+        "/api/repositories/00000000-0000-0000-0000-000000000000/pull-requests"
+    )
+
+    assert response.status_code == 403
+    assert cache_reads == []
 
 
 def test_list_pull_requests_marks_matching_head_sha_as_current(
