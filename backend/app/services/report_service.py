@@ -1,4 +1,5 @@
 from app.models.analysis_run import AnalysisRun
+from app.services.evidence_redaction_service import redact_text
 
 GITHUB_COMMENT_MARKER_TEMPLATE = "<!-- ai-quality-gate:analysis-run:{analysis_run_id} -->"
 
@@ -64,7 +65,7 @@ def build_operational_error_report(run: AnalysisRun) -> str:
 def build_github_comment_body(run: AnalysisRun) -> str:
     marker = GITHUB_COMMENT_MARKER_TEMPLATE.format(analysis_run_id=run.id)
     report = run.final_report_markdown or build_final_report(run, run.ai_review_json)
-    return f"{marker}\n\n{report}"
+    return f"{marker}\n\n{redact_text(report)}"
 
 
 def github_comment_marker(run: AnalysisRun) -> str:
