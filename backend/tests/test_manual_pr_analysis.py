@@ -77,7 +77,7 @@ def test_manual_analyze_uses_coverage_working_directory_for_nested_project(
 ):
     from app.models.coverage_execution_config import CoverageExecutionConfig
     from app.models.quality_gate_config import QualityGateConfig
-    from app.services.gates import coverage_gate
+    from app.services import analysis_evidence_workspace
 
     coverage_config = db_session.query(CoverageExecutionConfig).filter_by(
         repository_id=repository["id"]
@@ -131,17 +131,19 @@ def test_manual_analyze_uses_coverage_working_directory_for_nested_project(
 
     class FakeRunnerWorkspace:
         def __init__(self, analysis_run_id, repository_url):
-            self.repo_path = tmp_path / "repo"
+            self.root = tmp_path / str(analysis_run_id)
+            self.repo_path = self.root / "repo"
             self.command_metadata = []
 
         def __enter__(self):
-            (self.repo_path / "docker-log-watcher-agent").mkdir(parents=True)
+            self.root.mkdir(parents=True, exist_ok=True)
             return self
 
         def __exit__(self, exc_type, exc, traceback):
             return None
 
         def checkout(self, revision):
+            (self.repo_path / "docker-log-watcher-agent").mkdir(parents=True)
             return None
 
         def run(self, command, working_directory="."):
@@ -166,7 +168,11 @@ def test_manual_analyze_uses_coverage_working_directory_for_nested_project(
             )
             return SimpleNamespace(timed_out=False, exit_code=0)
 
-    monkeypatch.setattr(coverage_gate, "RunnerWorkspace", FakeRunnerWorkspace)
+    monkeypatch.setattr(
+        analysis_evidence_workspace,
+        "RunnerWorkspace",
+        FakeRunnerWorkspace,
+    )
 
     response = client.post(
         f"/api/repositories/{repository['id']}/pull-requests/1/analyze",
