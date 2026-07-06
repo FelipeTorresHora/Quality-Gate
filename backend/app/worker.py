@@ -9,17 +9,23 @@ log = logging.getLogger("analysis-worker")
 
 
 def process_next_job() -> UUID | None:
-    run_id = analysis_queue.claim_next()
-    if run_id is None:
+    job = analysis_queue.claim_next()
+    if job is None:
         return None
     db = SessionLocal()
     try:
-        analysis_execution_service.execute_analysis_run(db, run_id)
-    except Exception:
-        log.exception("analysis run %s failed", run_id)
+        analysis_execution_service.execute_analysis_run(db, job.analysis_run_id)
+        analysis_queue.complete(job.job_id)
+    except Exception as exc:
+        analysis_queue.fail(job.job_id, str(exc))
+        log.exception(
+            "analysis job %s for run %s failed",
+            job.job_id,
+            job.analysis_run_id,
+        )
     finally:
         db.close()
-    return run_id
+    return job.analysis_run_id
 
 
 def run_forever(poll_seconds: float = 2.0) -> None:
