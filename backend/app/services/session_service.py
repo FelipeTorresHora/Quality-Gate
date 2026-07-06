@@ -3,20 +3,32 @@ from datetime import UTC, datetime, timedelta
 import hashlib
 import hmac
 import secrets
+from uuid import UUID
 
-from sqlalchemy import select
+import jwt
+from jwt import InvalidTokenError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.user import User
-from app.models.user_session import UserSession
 
 
 @dataclass
 class CreatedSession:
-    session: UserSession
     cookie_value: str
     csrf_token: str
+    expires_at: datetime
+    session: None = None
+
+
+@dataclass(frozen=True)
+class AuthenticatedUser:
+    id: UUID
+    github_user_id: int
+    github_login: str
+    name: str | None
+    avatar_url: str | None
+    has_github_connection: bool
 
 
 def _hash_token(value: str) -> str:
@@ -28,74 +40,82 @@ def create_session(
     db: Session,
     user: User,
     *,
-    ttl: timedelta = timedelta(hours=8),
+    ttl: timedelta | None = None,
 ) -> CreatedSession:
-    cookie_value = secrets.token_urlsafe(48)
+    _ = db
+    settings = get_settings()
+    ttl = ttl or timedelta(seconds=settings.session_ttl_seconds)
     csrf_token = secrets.token_urlsafe(32)
     now = datetime.now(UTC)
-    session = UserSession(
-        user_id=user.id,
-        session_token_hash=_hash_token(cookie_value),
-        csrf_token_hash=_hash_token(csrf_token),
-        expires_at=now + ttl,
-        last_seen_at=now,
+    expires_at = now + ttl
+    payload = {
+        "sub": str(user.id),
+        "github_user_id": user.github_user_id,
+        "github_login": user.github_login,
+        "name": user.name,
+        "avatar_url": user.avatar_url,
+        "has_github_connection": bool(user.github_connections),
+        "csrf_hash": _hash_token(csrf_token),
+        "iat": int(now.timestamp()),
+        "exp": int(expires_at.timestamp()),
+    }
+    cookie_value = jwt.encode(
+        payload,
+        settings.session_secret,
+        algorithm="HS256",
     )
-    db.add(session)
-    db.commit()
-    db.refresh(session)
     return CreatedSession(
-        session=session,
         cookie_value=cookie_value,
         csrf_token=csrf_token,
+        expires_at=expires_at,
     )
 
 
-def get_user_for_session(db: Session, cookie_value: str | None) -> User | None:
-    session = get_active_session(db, cookie_value)
-    if session is None:
+def get_user_for_session(cookie_value: str | None) -> AuthenticatedUser | None:
+    payload = _decode_session(cookie_value)
+    if payload is None:
         return None
-    session.last_seen_at = datetime.now(UTC)
-    db.commit()
-    return db.get(User, session.user_id)
-
-
-def get_active_session(db: Session, cookie_value: str | None) -> UserSession | None:
-    if not cookie_value:
-        return None
-    session = db.scalar(
-        select(UserSession).where(
-            UserSession.session_token_hash == _hash_token(cookie_value)
+    try:
+        return AuthenticatedUser(
+            id=UUID(str(payload["sub"])),
+            github_user_id=int(payload["github_user_id"]),
+            github_login=str(payload["github_login"]),
+            name=payload.get("name"),
+            avatar_url=payload.get("avatar_url"),
+            has_github_connection=bool(payload.get("has_github_connection")),
         )
-    )
-    if session is None:
+    except (KeyError, TypeError, ValueError):
         return None
-    if session.revoked_at is not None or session.expires_at <= datetime.now(UTC):
-        return None
-    return session
 
 
 def validate_csrf_token(
-    db: Session,
     cookie_value: str | None,
     csrf_token: str | None,
 ) -> bool:
     if not csrf_token:
         return False
-    session = get_active_session(db, cookie_value)
-    if session is None or not session.csrf_token_hash:
+    payload = _decode_session(cookie_value)
+    csrf_hash = payload.get("csrf_hash") if payload else None
+    if not csrf_hash:
         return False
-    return hmac.compare_digest(session.csrf_token_hash, _hash_token(csrf_token))
+    return hmac.compare_digest(str(csrf_hash), _hash_token(csrf_token))
 
 
 def revoke_session(db: Session, cookie_value: str | None) -> None:
+    _ = (db, cookie_value)
+
+
+def _decode_session(cookie_value: str | None) -> dict | None:
     if not cookie_value:
-        return
-    session = db.scalar(
-        select(UserSession).where(
-            UserSession.session_token_hash == _hash_token(cookie_value)
+        return None
+    try:
+        payload = jwt.decode(
+            cookie_value,
+            get_settings().session_secret,
+            algorithms=["HS256"],
         )
-    )
-    if session is None:
-        return
-    session.revoked_at = datetime.now(UTC)
-    db.commit()
+    except InvalidTokenError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
