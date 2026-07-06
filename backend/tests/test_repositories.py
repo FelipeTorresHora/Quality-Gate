@@ -1,4 +1,7 @@
+from datetime import UTC, datetime
 from uuid import UUID
+
+from sqlalchemy import event
 
 from app.db.session import SessionLocal
 from app.models.analysis_run import AnalysisRun
@@ -151,11 +154,123 @@ def test_list_pull_requests_marks_different_head_sha_as_outdated(
     assert review_state["analysis_run"]["head_sha"] == "old-sha"
 
 
-def _insert_analysis_run(repository_id: str, *, head_sha: str) -> dict[str, str]:
+def test_list_pull_requests_batches_review_state_for_multiple_prs(
+    client,
+    repository,
+    monkeypatch,
+):
+    _patch_pull_requests(
+        monkeypatch,
+        pull_requests=[
+            _pull_request(number=1, head_sha="sha-current"),
+            _pull_request(number=2, head_sha="sha-new"),
+            _pull_request(number=3, head_sha="sha-missing"),
+        ],
+    )
+    _insert_analysis_run(repository["id"], pr_number=1, head_sha="sha-current")
+    _insert_analysis_run(repository["id"], pr_number=2, head_sha="sha-old")
+
+    def fail_single_item_review_state(*args, **kwargs):
+        raise AssertionError("single-item review state should not be used for PR lists")
+
+    monkeypatch.setattr(
+        "app.services.pull_request_review_service.get_pull_request_review_state",
+        fail_single_item_review_state,
+    )
+
+    response = client.get(f"/api/repositories/{repository['id']}/pull-requests")
+
+    assert response.status_code == 200
+    pull_requests = {item["number"]: item for item in response.json()}
+    assert pull_requests[1]["review_state"]["state"] == "current"
+    assert pull_requests[2]["review_state"]["state"] == "outdated"
+    assert pull_requests[3]["review_state"] == {
+        "state": "not_run",
+        "analysis_run": None,
+    }
+
+
+def test_list_pull_requests_uses_latest_run_per_pr(
+    client,
+    repository,
+    monkeypatch,
+):
+    _patch_pull_requests(
+        monkeypatch,
+        pull_requests=[
+            _pull_request(number=7, head_sha="sha-current"),
+        ],
+    )
+    _insert_analysis_run(
+        repository["id"],
+        pr_number=7,
+        head_sha="sha-old",
+        created_at=datetime(2026, 6, 21, 10, 0, tzinfo=UTC),
+    )
+    latest = _insert_analysis_run(
+        repository["id"],
+        pr_number=7,
+        head_sha="sha-current",
+        created_at=datetime(2026, 6, 21, 11, 0, tzinfo=UTC),
+    )
+
+    response = client.get(f"/api/repositories/{repository['id']}/pull-requests")
+
+    assert response.status_code == 200
+    review_state = response.json()[0]["review_state"]
+    assert review_state["state"] == "current"
+    assert review_state["analysis_run"]["id"] == latest["id"]
+    assert review_state["analysis_run"]["head_sha"] == "sha-current"
+
+
+def test_pull_request_review_state_batch_queries_analysis_runs_once(
+    db_session,
+    repository,
+):
+    from app.services.pull_request_review_service import get_pull_request_review_states
+
+    _insert_analysis_run(repository["id"], pr_number=1, head_sha="sha-1")
+    _insert_analysis_run(repository["id"], pr_number=2, head_sha="sha-2")
+    pull_requests = [
+        _pull_request(number=1, head_sha="sha-1"),
+        _pull_request(number=2, head_sha="sha-new"),
+        _pull_request(number=3, head_sha="sha-missing"),
+    ]
+    analysis_run_queries = []
+
+    def count_analysis_run_queries(
+        conn, cursor, statement, parameters, context, executemany
+    ):
+        if "FROM analysis_runs" in statement:
+            analysis_run_queries.append(statement)
+
+    event.listen(db_session.bind, "before_cursor_execute", count_analysis_run_queries)
+    try:
+        states = get_pull_request_review_states(
+            db_session, UUID(repository["id"]), pull_requests
+        )
+    finally:
+        event.remove(
+            db_session.bind, "before_cursor_execute", count_analysis_run_queries
+        )
+
+    assert len(analysis_run_queries) == 1
+    assert states[1].state == "current"
+    assert states[2].state == "outdated"
+    assert states[3].state == "not_run"
+
+
+def _insert_analysis_run(
+    repository_id: str,
+    *,
+    head_sha: str,
+    pr_number: int = 42,
+    created_at: datetime | None = None,
+) -> dict[str, str]:
     with SessionLocal() as db:
         run = AnalysisRun(
             repository_id=UUID(repository_id),
-            pr_number=42,
+            pr_number=pr_number,
             head_sha=head_sha,
             status=AnalysisRunStatus.COMPLETED,
             decision=GateDecision.PASS,
@@ -169,6 +284,8 @@ def _insert_analysis_run(repository_id: str, *, head_sha: str) -> dict[str, str]
             changed_files_snapshot_json=[],
             diff_truncated=False,
         )
+        if created_at is not None:
+            run.created_at = created_at
         db.add(run)
         db.commit()
         return {
@@ -177,27 +294,30 @@ def _insert_analysis_run(repository_id: str, *, head_sha: str) -> dict[str, str]
         }
 
 
-def _patch_pull_requests(monkeypatch, head_sha: str):
+def _pull_request(number: int, head_sha: str):
     from app.schemas.github import GitHubPullRequestRead
+
+    return GitHubPullRequestRead(
+        number=number,
+        title="Add dashboard review state",
+        user_login="octocat",
+        state="open",
+        draft=False,
+        head_ref="feature/dashboard",
+        head_sha=head_sha,
+        base_ref="main",
+        html_url=f"https://github.com/horinha04/meu-projeto/pull/{number}",
+        created_at="2026-06-21T10:00:00Z",
+        updated_at="2026-06-21T11:00:00Z",
+    )
+
+
+def _patch_pull_requests(monkeypatch, head_sha: str = "abc123", pull_requests=None):
     from app.services.github_service import GitHubClient
 
     def fake_list_pull_requests(self, owner, name):
         assert (owner, name) == ("horinha04", "meu-projeto")
-        return [
-            GitHubPullRequestRead(
-                number=42,
-                title="Add dashboard review state",
-                user_login="octocat",
-                state="open",
-                draft=False,
-                head_ref="feature/dashboard",
-                head_sha=head_sha,
-                base_ref="main",
-                html_url="https://github.com/horinha04/meu-projeto/pull/42",
-                created_at="2026-06-21T10:00:00Z",
-                updated_at="2026-06-21T11:00:00Z",
-            )
-        ]
+        return pull_requests or [_pull_request(number=42, head_sha=head_sha)]
 
     monkeypatch.setattr(
         GitHubClient,
