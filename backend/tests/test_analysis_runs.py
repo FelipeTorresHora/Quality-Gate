@@ -79,6 +79,49 @@ def test_list_analysis_runs_for_repository(client, repository):
     assert "findings" not in runs[0]
 
 
+def test_list_analysis_runs_cache_hit_still_requires_access(
+    client, repository, monkeypatch
+):
+    cache_reads = []
+    monkeypatch.setattr(
+        "app.api.routes_analysis.runtime_cache_service.get_json",
+        lambda key: cache_reads.append(key) or [],
+    )
+
+    response = client.get(
+        "/api/repositories/00000000-0000-0000-0000-000000000000/analysis-runs"
+    )
+
+    assert response.status_code == 403
+    assert cache_reads == []
+
+
+def test_list_analysis_runs_cache_miss_stores_repository_payload(
+    client, repository, monkeypatch
+):
+    _insert_run(repository["id"])
+    writes = []
+    monkeypatch.setattr(
+        "app.api.routes_analysis.runtime_cache_service.get_json",
+        lambda key: None,
+    )
+    monkeypatch.setattr(
+        "app.api.routes_analysis.runtime_cache_service.set_json",
+        lambda key, value, ttl, tags: writes.append(
+            {"key": key, "value": value, "ttl": ttl, "tags": tags}
+        ),
+    )
+
+    response = client.get(f"/api/repositories/{repository['id']}/analysis-runs")
+
+    assert response.status_code == 200
+    assert writes
+    assert writes[0]["key"] == f"analysis-runs:v1:repo:{repository['id']}"
+    assert writes[0]["ttl"] == 15
+    assert f"analysis-runs:repo:{repository['id']}" in writes[0]["tags"]
+    assert writes[0]["value"] == response.json()
+
+
 def test_get_analysis_run_detail(client, repository):
     run_id = _insert_run(repository["id"], with_finding=True)
 
@@ -98,9 +141,14 @@ def test_admin_execute_enqueues_run_and_returns_accepted(
 ):
     run_id = _insert_run(repository["id"])
     enqueued = []
+    expired = []
     monkeypatch.setattr(
         "app.services.analysis_queue.enqueue",
         lambda rid: enqueued.append(str(rid)),
+    )
+    monkeypatch.setattr(
+        "app.api.routes_analysis.runtime_cache_service.expire_tags",
+        lambda tags: expired.extend(tags),
     )
 
     response = client.post(
@@ -110,6 +158,9 @@ def test_admin_execute_enqueues_run_and_returns_accepted(
 
     assert response.status_code == 202
     assert enqueued == [run_id]
+    assert f"analysis-runs:repo:{repository['id']}" in expired
+    assert f"pull-requests:repo:{repository['id']}" in expired
+    assert "dashboard-summary" in expired
 
 
 def test_non_admin_cannot_execute_or_publish_analysis(

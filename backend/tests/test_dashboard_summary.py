@@ -67,6 +67,62 @@ def test_dashboard_summary_with_no_data(client, db_session):
     }
 
 
+def test_dashboard_summary_cache_hit_skips_service(client, repository, monkeypatch):
+    cached = {
+        "total_repositories": 7,
+        "total_analysis_runs": 11,
+        "run_status_counts": {
+            "pending": 0,
+            "running": 0,
+            "completed": 11,
+            "error": 0,
+        },
+        "gate_decision_counts": {"pass": 10, "fail": 1},
+        "approval_rate": 90.9,
+        "recent_analysis_runs": [],
+        "finding_counts": [],
+        "top_blocking_categories": [],
+    }
+    monkeypatch.setattr(
+        "app.api.routes_dashboard.runtime_cache_service.get_json",
+        lambda key: cached,
+    )
+    monkeypatch.setattr(
+        "app.services.dashboard_service.get_dashboard_summary",
+        lambda db, user: (_ for _ in ()).throw(AssertionError("cache miss")),
+    )
+
+    response = client.get("/api/dashboard/summary")
+
+    assert response.status_code == 200
+    assert response.json() == cached
+
+
+def test_dashboard_summary_cache_miss_stores_payload(
+    client, repository, monkeypatch
+):
+    writes = []
+    monkeypatch.setattr(
+        "app.api.routes_dashboard.runtime_cache_service.get_json",
+        lambda key: None,
+    )
+    monkeypatch.setattr(
+        "app.api.routes_dashboard.runtime_cache_service.set_json",
+        lambda key, value, ttl, tags: writes.append(
+            {"key": key, "value": value, "ttl": ttl, "tags": tags}
+        ),
+    )
+
+    response = client.get("/api/dashboard/summary")
+
+    assert response.status_code == 200
+    assert writes
+    assert writes[0]["key"].startswith("dashboard-summary:v1:user:")
+    assert writes[0]["ttl"] == 60
+    assert "dashboard-summary" in writes[0]["tags"]
+    assert writes[0]["value"] == response.json()
+
+
 def test_dashboard_summary_counts_run_statuses_and_gate_decisions(
     client, repository
 ):

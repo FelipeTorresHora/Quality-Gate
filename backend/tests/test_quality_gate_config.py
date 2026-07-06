@@ -1,4 +1,10 @@
-def test_update_quality_gate_config(client, repository):
+def test_update_quality_gate_config(client, repository, monkeypatch):
+    expired = []
+    monkeypatch.setattr(
+        "app.api.routes_quality_gate.runtime_cache_service.expire_tags",
+        lambda tags: expired.extend(tags),
+    )
+
     response = client.put(
         f"/api/repositories/{repository['id']}/quality-gate-config",
         headers={"X-CSRF-Token": repository["csrf_token"]},
@@ -32,6 +38,7 @@ def test_update_quality_gate_config(client, repository):
     assert config["technical_debt_enabled"] is False
     assert config["comment_on_github"] is True
     assert config["publish_github_status"] is False
+    assert f"quality-gate-config:repo:{repository['id']}" in expired
 
 
 def test_update_quality_gate_config_requires_csrf_token(client, repository):

@@ -1,5 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
+import jwt
+
 from app.models.github_app_installation import GitHubAppInstallation
 from app.models.installation_repository import InstallationRepository
 from app.models.repository import Repository
@@ -91,14 +93,16 @@ def test_create_session_returns_raw_cookie_once(reset_database, db_session):
 
     assert created.cookie_value
     assert created.csrf_token
-    assert created.session.session_token_hash != created.cookie_value
-    assert (
-        session_service.get_user_for_session(db_session, created.cookie_value).id
-        == user.id
-    )
+    assert created.expires_at > datetime.now(UTC)
+    assert db_session.query(UserSession).count() == 0
+    current_user = session_service.get_user_for_session(created.cookie_value)
+    assert current_user.id == user.id
+    assert current_user.github_user_id == 1
+    assert current_user.github_login == "octocat"
+    assert current_user.has_github_connection is False
 
 
-def test_revoked_session_is_rejected(reset_database, db_session):
+def test_revoke_session_is_noop_for_stateless_session(reset_database, db_session):
     user = User(github_user_id=1, github_login="octocat")
     db_session.add(user)
     db_session.commit()
@@ -108,7 +112,7 @@ def test_revoked_session_is_rejected(reset_database, db_session):
 
     session_service.revoke_session(db_session, created.cookie_value)
 
-    assert session_service.get_user_for_session(db_session, created.cookie_value) is None
+    assert session_service.get_user_for_session(created.cookie_value).id == user.id
 
 
 def test_expired_session_is_rejected(reset_database, db_session):
@@ -119,7 +123,50 @@ def test_expired_session_is_rejected(reset_database, db_session):
         db_session, user, ttl=timedelta(seconds=-1)
     )
 
-    assert session_service.get_user_for_session(db_session, created.cookie_value) is None
+    assert session_service.get_user_for_session(created.cookie_value) is None
+
+
+def test_tampered_session_cookie_is_rejected(reset_database, db_session):
+    user = User(github_user_id=1, github_login="octocat")
+    db_session.add(user)
+    db_session.commit()
+    created = session_service.create_session(db_session, user)
+
+    header, payload, signature = created.cookie_value.split(".")
+    tampered_signature = (
+        ("a" if signature[0] != "a" else "b") + signature[1:]
+    )
+    tampered = ".".join([header, payload, tampered_signature])
+
+    assert session_service.get_user_for_session(tampered) is None
+
+
+def test_csrf_token_validates_against_session_claim(reset_database, db_session):
+    user = User(github_user_id=1, github_login="octocat")
+    db_session.add(user)
+    db_session.commit()
+    created = session_service.create_session(db_session, user)
+
+    assert session_service.validate_csrf_token(
+        created.cookie_value, created.csrf_token
+    )
+    assert not session_service.validate_csrf_token(created.cookie_value, "wrong")
+
+
+def test_session_cookie_does_not_expose_csrf_token(reset_database, db_session):
+    user = User(github_user_id=1, github_login="octocat")
+    db_session.add(user)
+    db_session.commit()
+    created = session_service.create_session(db_session, user)
+
+    payload = jwt.decode(
+        created.cookie_value,
+        options={"verify_signature": False},
+        algorithms=["HS256"],
+    )
+
+    assert payload["csrf_hash"] != created.csrf_token
+    assert "csrf_token" not in payload
 
 
 def test_me_requires_authentication(client):
@@ -127,6 +174,37 @@ def test_me_requires_authentication(client):
 
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "authentication_required"
+
+
+def test_logout_with_valid_stateless_csrf_deletes_cookies(client, db_session):
+    user = User(github_user_id=1, github_login="octocat")
+    db_session.add(user)
+    db_session.commit()
+    created = session_service.create_session(db_session, user)
+    client.cookies.set("qg_session", created.cookie_value)
+    client.cookies.set("qg_csrf", created.csrf_token)
+
+    response = client.post(
+        "/api/auth/logout",
+        headers={"X-CSRF-Token": created.csrf_token},
+    )
+
+    assert response.status_code == 200
+    assert db_session.query(UserSession).count() == 0
+
+
+def test_logout_rejects_missing_stateless_csrf(client, db_session):
+    user = User(github_user_id=1, github_login="octocat")
+    db_session.add(user)
+    db_session.commit()
+    created = session_service.create_session(db_session, user)
+    client.cookies.set("qg_session", created.cookie_value)
+    client.cookies.set("qg_csrf", created.csrf_token)
+
+    response = client.post("/api/auth/logout")
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "csrf_token_invalid"
 
 
 def test_login_redirects_to_github(monkeypatch, client):
