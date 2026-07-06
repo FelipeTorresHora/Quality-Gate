@@ -15,7 +15,7 @@ from app.models.quality_gate_config import QualityGateConfig
 from app.models.repository import Repository
 from app.models.user import User
 from app.models.user_repository_access import UserRepositoryAccess
-from app.services import token_crypto_service
+from app.services import runtime_cache_service, token_crypto_service
 
 
 def sync_installation_payload(
@@ -93,6 +93,7 @@ def sync_installation_payload(
 
     db.commit()
     db.refresh(installation)
+    runtime_cache_service.expire_tags(["repositories", "dashboard-summary"])
     return installation
 
 
@@ -151,6 +152,7 @@ def sync_user_installations(db: Session, user: User) -> None:
         visible_installation_ids,
     )
     db.commit()
+    runtime_cache_service.expire_tags(["repositories", "dashboard-summary"])
 
 
 def deactivate_installation(
@@ -181,6 +183,7 @@ def deactivate_installation(
             )
         )
     db.commit()
+    runtime_cache_service.expire_tags(["repositories", "dashboard-summary"])
 
 
 def remove_installation_repositories(
@@ -214,6 +217,7 @@ def remove_installation_repositories(
         )
         db.delete(link)
     db.commit()
+    runtime_cache_service.expire_tags(["repositories", "dashboard-summary"])
 
 
 def _upsert_repository(db: Session, payload: dict) -> Repository:

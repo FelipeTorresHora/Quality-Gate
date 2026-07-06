@@ -17,6 +17,7 @@ from app.services import (
     analysis_service,
     github_installation_service,
     github_service,
+    runtime_cache_service,
 )
 from app.services.repository_service import get_repository_by_full_name
 
@@ -105,6 +106,13 @@ def process_github_webhook(
 
     if created_new:
         analysis_queue.enqueue(run.id)
+        runtime_cache_service.expire_tags(
+            [
+                f"analysis-runs:repo:{repository.id}",
+                f"pull-requests:repo:{repository.id}",
+                "dashboard-summary",
+            ]
+        )
 
     return GitHubWebhookResult(
         ignored=False,

@@ -14,7 +14,7 @@ from app.models.repository import Repository
 from app.services.agent import quality_agent
 from app.services.gates import coverage_gate, security_gate, technical_debt_gate
 from app.services.gates.types import GateFinding, GateResult
-from app.services import report_service
+from app.services import report_service, runtime_cache_service
 from app.services import github_app_auth_service, github_installation_service
 
 
@@ -156,6 +156,7 @@ def _run_pipeline(
     )
     run.finished_at = datetime.now(UTC)
     db.commit()
+    _expire_analysis_caches(run.repository_id)
     return _get_run_for_execution(db, run.id)
 
 
@@ -211,4 +212,15 @@ def _finish_with_error(
     run.final_report_markdown = report_service.build_operational_error_report(run)
     run.finished_at = datetime.now(UTC)
     db.commit()
+    _expire_analysis_caches(run.repository_id)
     return _get_run_for_execution(db, run.id)
+
+
+def _expire_analysis_caches(repository_id: UUID) -> None:
+    runtime_cache_service.expire_tags(
+        [
+            f"analysis-runs:repo:{repository_id}",
+            f"pull-requests:repo:{repository_id}",
+            "dashboard-summary",
+        ]
+    )
