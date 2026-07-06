@@ -1,3 +1,4 @@
+from app.models.analysis_job import AnalysisJob
 from app.models.analysis_run import AnalysisRun
 from app.models.enums import AnalysisRunStatus, AnalysisTriggerSource
 from app import worker
@@ -27,9 +28,13 @@ def test_process_next_job_executes_claimed_run(repository, db_session, monkeypat
     )
 
     result = worker.process_next_job()
+    db_session.expire_all()
+    job = db_session.query(AnalysisJob).filter_by(analysis_run_id=run_id).one()
 
     assert result == run_id
     assert executed == [run_id]
+    assert job.status == "completed"
+    assert job.finished_at is not None
 
 
 def test_process_next_job_returns_none_when_empty(db_session, monkeypatch):
@@ -43,7 +48,7 @@ def test_process_next_job_returns_none_when_empty(db_session, monkeypatch):
     assert called == []
 
 
-def test_process_next_job_swallows_execution_errors(
+def test_process_next_job_marks_failed_on_execution_error(
     repository, db_session, monkeypatch
 ):
     run_id = _make_run(db_session, repository["id"])
@@ -57,3 +62,7 @@ def test_process_next_job_swallows_execution_errors(
     )
 
     assert worker.process_next_job() == run_id
+    db_session.expire_all()
+    job = db_session.query(AnalysisJob).filter_by(analysis_run_id=run_id).one()
+    assert job.status == "failed"
+    assert job.last_error == "pipeline blew up"
