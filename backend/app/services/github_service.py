@@ -235,12 +235,13 @@ def list_repository_pull_requests(
     ).list_pull_requests(
         repository.owner, repository.name
     )
+    review_states = pull_request_review_service.get_pull_request_review_states(
+        db, repository.id, pull_requests
+    )
     return [
         GitHubPullRequestWithReviewState(
             **pull_request.model_dump(),
-            review_state=pull_request_review_service.get_pull_request_review_state(
-                db, repository.id, pull_request
-            ),
+            review_state=review_states[pull_request.number],
         )
         for pull_request in pull_requests
     ]
