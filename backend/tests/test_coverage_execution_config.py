@@ -16,7 +16,13 @@ def test_synced_repository_has_default_coverage_execution_config(
     assert config["report_format"] == "cobertura_xml"
 
 
-def test_update_coverage_execution_config(client, repository):
+def test_update_coverage_execution_config(client, repository, monkeypatch):
+    expired = []
+    monkeypatch.setattr(
+        "app.api.routes_coverage_execution_config.runtime_cache_service.expire_tags",
+        lambda tags: expired.extend(tags),
+    )
+
     response = client.put(
         f"/api/repositories/{repository['id']}/coverage-execution-config",
         headers={"X-CSRF-Token": repository["csrf_token"]},
@@ -36,6 +42,7 @@ def test_update_coverage_execution_config(client, repository):
     assert config["test_command"] == "go test ./... -coverprofile=coverage.out"
     assert config["report_path"] == "coverage.out"
     assert config["report_format"] == "go_coverprofile"
+    assert f"coverage-config:repo:{repository['id']}" in expired
 
 
 def test_update_coverage_execution_config_allows_blank_install_command(
