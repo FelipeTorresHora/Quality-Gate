@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     cache_config_ttl_seconds: int = 300
     token_encryption_key: str | None = None
     auth_callback_url: str = "http://localhost:8000/api/auth/github/callback"
+    github_oauth_state_ttl_seconds: int = 600
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-mini"
     langsmith_tracing: bool = False
@@ -45,6 +46,14 @@ class Settings(BaseSettings):
     command_timeout_seconds: int = 600
     analysis_total_timeout_seconds: int = 900
     keep_workdir: bool = False
+    runner_adapter: str | None = None
+    allow_local_runner_in_production: bool = False
+    runner_container_image: str = "quality-gate-runner:latest"
+    runner_network: str = "none"
+    runner_cpu_limit: float = 1.0
+    runner_memory_limit: str = "1g"
+    runner_pids_limit: int = 256
+    runner_tmpfs_size: str = "512m"
 
     model_config = SettingsConfigDict(extra="ignore")
 
@@ -54,6 +63,39 @@ class Settings(BaseSettings):
         if self.database_url.startswith("postgresql://"):
             return self.database_url.replace("postgresql://", "postgresql+psycopg://", 1)
         return self.database_url
+
+
+KNOWN_WEAK_SESSION_SECRETS = {
+    "",
+    "change-me",
+    "development-session-secret-at-least-32-bytes",
+}
+
+
+def validate_runtime_security_settings(settings: Settings) -> None:
+    if settings.app_env.lower() != "production":
+        return
+
+    if (
+        settings.session_secret in KNOWN_WEAK_SESSION_SECRETS
+        or len(settings.session_secret) < 32
+    ):
+        raise RuntimeError(
+            "SESSION_SECRET must be set to a strong non-default value in production."
+        )
+
+    if (
+        settings.frontend_origin.startswith("https://")
+        or settings.auth_callback_url.startswith("https://")
+    ) and not settings.session_cookie_secure:
+        raise RuntimeError(
+            "SESSION_COOKIE_SECURE must be true when production auth uses HTTPS."
+        )
+
+    if not settings.token_encryption_key:
+        raise RuntimeError(
+            "TOKEN_ENCRYPTION_KEY must be set when OAuth tokens are persisted in production."
+        )
 
 
 @lru_cache

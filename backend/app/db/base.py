@@ -12,6 +12,7 @@ from app.models import coverage_execution_config  # noqa: E402,F401
 from app.models import github_app_installation  # noqa: E402,F401
 from app.models import github_connection  # noqa: E402,F401
 from app.models import installation_repository  # noqa: E402,F401
+from app.models import oauth_state  # noqa: E402,F401
 from app.models import quality_gate_config  # noqa: E402,F401
 from app.models import repository  # noqa: E402,F401
 from app.models import user  # noqa: E402,F401
