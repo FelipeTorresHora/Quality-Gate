@@ -22,7 +22,7 @@ services:
       GITHUB_API_VERSION: ${GITHUB_API_VERSION:-2022-11-28}
       GITHUB_DEFAULT_BASE_BRANCH: ${GITHUB_DEFAULT_BASE_BRANCH:-main}
       GITHUB_STATUS_CONTEXT: ${GITHUB_STATUS_CONTEXT:-ai-quality-gate}
-      SESSION_SECRET: ${SESSION_SECRET:-change-me}
+      SESSION_SECRET: ${SESSION_SECRET:-development-session-secret-at-least-32-bytes}
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-qg_session}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
@@ -32,6 +32,14 @@ services:
       LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-pr-quality-dashboard}
+      RUNNER_ADAPTER: ${RUNNER_ADAPTER:-}
+      ALLOW_LOCAL_RUNNER_IN_PRODUCTION: ${ALLOW_LOCAL_RUNNER_IN_PRODUCTION:-false}
+      RUNNER_CONTAINER_IMAGE: ${RUNNER_CONTAINER_IMAGE:-quality-gate-runner:latest}
+      RUNNER_NETWORK: ${RUNNER_NETWORK:-none}
+      RUNNER_CPU_LIMIT: ${RUNNER_CPU_LIMIT:-1.0}
+      RUNNER_MEMORY_LIMIT: ${RUNNER_MEMORY_LIMIT:-1g}
+      RUNNER_PIDS_LIMIT: ${RUNNER_PIDS_LIMIT:-256}
+      RUNNER_TMPFS_SIZE: ${RUNNER_TMPFS_SIZE:-512m}
     ports:
       - "8000:8000"
     depends_on:
@@ -50,6 +58,14 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+
+  runner-image:
+    build:
+      context: ./backend
+      dockerfile: runner.Dockerfile
+    image: ${RUNNER_CONTAINER_IMAGE:-quality-gate-runner:latest}
+    profiles:
+      - runner
 
   frontend:
     build:
