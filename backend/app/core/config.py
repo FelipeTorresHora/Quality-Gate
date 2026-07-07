@@ -1,6 +1,8 @@
 import os
 from functools import lru_cache
+from typing import Any
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -55,7 +57,23 @@ class Settings(BaseSettings):
     runner_pids_limit: int = 256
     runner_tmpfs_size: str = "512m"
 
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore", env_ignore_empty=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def infer_vercel_environment(cls, values: Any) -> Any:
+        if not isinstance(values, dict):
+            return values
+
+        app_env = values.get("app_env")
+        if isinstance(app_env, str) and app_env.strip():
+            return values
+
+        vercel_env = os.environ.get("VERCEL_ENV")
+        if vercel_env:
+            return {**values, "app_env": vercel_env}
+
+        return values
 
     def normalized_database_url(self) -> str:
         if self.database_url.startswith("postgres://"):
