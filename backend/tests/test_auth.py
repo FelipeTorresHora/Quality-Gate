@@ -339,6 +339,26 @@ def test_post_login_redirect_uses_callback_origin_on_vercel_host_mismatch(
     session_service.get_settings.cache_clear()
 
 
+def test_post_login_redirect_uses_forwarded_https_origin_on_vercel_host_mismatch(
+    monkeypatch,
+):
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv(
+        "FRONTEND_ORIGIN",
+        "https://quality-gate-felipetorreshoras-projects.vercel.app",
+    )
+    session_service.get_settings.cache_clear()
+    request = _request_for_url(
+        "http",
+        "quality-gate-gamma.vercel.app",
+        "/server/api/auth/github/callback",
+        forwarded_proto="https",
+    )
+
+    assert _post_login_redirect_url(request) == "https://quality-gate-gamma.vercel.app/"
+    session_service.get_settings.cache_clear()
+
+
 def test_post_login_redirect_keeps_configured_frontend_origin_locally(monkeypatch):
     monkeypatch.delenv("VERCEL", raising=False)
     monkeypatch.setenv("FRONTEND_ORIGIN", "http://localhost:5173")
@@ -353,7 +373,57 @@ def test_post_login_redirect_keeps_configured_frontend_origin_locally(monkeypatc
     session_service.get_settings.cache_clear()
 
 
-def _request_for_url(scheme: str, host: str, path: str) -> Request:
+def test_github_callback_sets_session_cookie_for_forwarded_vercel_origin(
+    monkeypatch,
+    client,
+    reset_database,
+    db_session,
+):
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv(
+        "FRONTEND_ORIGIN",
+        "https://quality-gate-felipetorreshoras-projects.vercel.app",
+    )
+    session_service.get_settings.cache_clear()
+    user = User(github_user_id=42, github_login="octocat", name="Octo Cat")
+    db_session.add(user)
+    db_session.commit()
+    monkeypatch.setattr(
+        github_oauth_service,
+        "exchange_code_for_user",
+        lambda code, state, db: user,
+    )
+
+    response = client.get(
+        "/api/auth/github/callback?code=code&state=state",
+        headers={
+            "host": "quality-gate-gamma.vercel.app",
+            "x-forwarded-proto": "https",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "https://quality-gate-gamma.vercel.app/"
+    assert "qg_session=" in response.headers["set-cookie"]
+
+    me_response = client.get("/api/auth/me")
+
+    assert me_response.status_code == 200
+    assert me_response.json()["github_login"] == "octocat"
+    session_service.get_settings.cache_clear()
+
+
+def _request_for_url(
+    scheme: str,
+    host: str,
+    path: str,
+    *,
+    forwarded_proto: str | None = None,
+) -> Request:
+    headers = [(b"host", host.encode("ascii"))]
+    if forwarded_proto is not None:
+        headers.append((b"x-forwarded-proto", forwarded_proto.encode("ascii")))
     return Request(
         {
             "type": "http",
@@ -361,7 +431,7 @@ def _request_for_url(scheme: str, host: str, path: str) -> Request:
             "scheme": scheme,
             "path": path,
             "root_path": "",
-            "headers": [(b"host", host.encode("ascii"))],
+            "headers": headers,
             "server": (host, 443 if scheme == "https" else 80),
         }
     )

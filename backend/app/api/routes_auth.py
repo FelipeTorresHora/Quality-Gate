@@ -63,17 +63,17 @@ def logout(
 def _post_login_redirect_url(request: Request) -> str:
     settings = session_service.get_settings()
     frontend_origin = settings.frontend_origin
-    request_origin = str(request.base_url)
     frontend_host = urlparse(frontend_origin).hostname
-    request_host = request.url.hostname
+    request_host = request.headers.get("x-forwarded-host") or request.url.hostname
+    request_scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
 
     if (
         os.environ.get("VERCEL")
-        and request.url.scheme == "https"
+        and request_scheme == "https"
         and request_host
         and frontend_host
         and request_host != frontend_host
     ):
-        return request_origin
+        return f"{request_scheme}://{request_host}/"
 
     return frontend_origin
