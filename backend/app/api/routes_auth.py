@@ -1,3 +1,6 @@
+import os
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
@@ -30,14 +33,14 @@ def github_login(db: Session = Depends(get_db)):
 
 @router.get("/github/callback")
 def github_callback(
+    request: Request,
     code: str = Query(),
     state: str = Query(),
     db: Session = Depends(get_db),
 ):
     user = github_oauth_service.exchange_code_for_user(code, state, db)
     created = session_service.create_session(db, user)
-    settings = session_service.get_settings()
-    response = RedirectResponse(settings.frontend_origin)
+    response = RedirectResponse(_post_login_redirect_url(request), status_code=303)
     session_service.set_session_cookies(response, created)
     return response
 
@@ -55,3 +58,22 @@ def logout(
     session_service.revoke_session(db, cookie_value)
     session_service.clear_session_cookies(response)
     return {"status": "ok"}
+
+
+def _post_login_redirect_url(request: Request) -> str:
+    settings = session_service.get_settings()
+    frontend_origin = settings.frontend_origin
+    request_origin = str(request.base_url)
+    frontend_host = urlparse(frontend_origin).hostname
+    request_host = request.url.hostname
+
+    if (
+        os.environ.get("VERCEL")
+        and request.url.scheme == "https"
+        and request_host
+        and frontend_host
+        and request_host != frontend_host
+    ):
+        return request_origin
+
+    return frontend_origin

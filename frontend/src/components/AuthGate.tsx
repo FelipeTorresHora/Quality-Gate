@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 
-import { getCurrentUser, getGitHubLoginUrl } from "../api/client";
+import { ApiError, getCurrentUser, getGitHubLoginUrl } from "../api/client";
 import type { CurrentUser } from "../types/api";
 import ErrorMessage from "./ErrorMessage";
 import LoadingBlock from "./LoadingBlock";
@@ -18,7 +18,14 @@ export default function AuthGate({
   useEffect(() => {
     getCurrentUser()
       .then(setUser)
-      .catch(setError)
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && error.status === 401) {
+          setUser(null);
+          setError(null);
+          return;
+        }
+        setError(error);
+      })
       .finally(() => setLoading(false));
   }, []);
 

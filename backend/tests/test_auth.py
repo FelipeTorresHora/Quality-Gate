@@ -3,9 +3,11 @@ from datetime import UTC, datetime, timedelta
 import jwt
 import pytest
 from fastapi import Response
+from starlette.requests import Request
 
 from app.core.config import Settings, get_settings, validate_runtime_security_settings
 from app.core.errors import AppError
+from app.api.routes_auth import _post_login_redirect_url
 from app.models.github_app_installation import GitHubAppInstallation
 from app.models.installation_repository import InstallationRepository
 from app.models.repository import Repository
@@ -316,6 +318,53 @@ def test_login_redirects_to_github(monkeypatch, client, reset_database):
     assert "github.com/login/oauth/authorize" in response.headers["location"]
     assert "client_id=client-id" in response.headers["location"]
     github_oauth_service.get_settings.cache_clear()
+
+
+def test_post_login_redirect_uses_callback_origin_on_vercel_host_mismatch(
+    monkeypatch,
+):
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv(
+        "FRONTEND_ORIGIN",
+        "https://quality-gate-felipetorreshoras-projects.vercel.app",
+    )
+    session_service.get_settings.cache_clear()
+    request = _request_for_url(
+        "https",
+        "quality-gate-gamma.vercel.app",
+        "/server/api/auth/github/callback",
+    )
+
+    assert _post_login_redirect_url(request) == "https://quality-gate-gamma.vercel.app/"
+    session_service.get_settings.cache_clear()
+
+
+def test_post_login_redirect_keeps_configured_frontend_origin_locally(monkeypatch):
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.setenv("FRONTEND_ORIGIN", "http://localhost:5173")
+    session_service.get_settings.cache_clear()
+    request = _request_for_url(
+        "http",
+        "localhost:8000",
+        "/api/auth/github/callback",
+    )
+
+    assert _post_login_redirect_url(request) == "http://localhost:5173"
+    session_service.get_settings.cache_clear()
+
+
+def _request_for_url(scheme: str, host: str, path: str) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": scheme,
+            "path": path,
+            "root_path": "",
+            "headers": [(b"host", host.encode("ascii"))],
+            "server": (host, 443 if scheme == "https" else 80),
+        }
+    )
 
 
 def test_token_crypto_round_trip(monkeypatch):
