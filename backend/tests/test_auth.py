@@ -4,7 +4,7 @@ import jwt
 import pytest
 from fastapi import Response
 
-from app.core.config import Settings, validate_runtime_security_settings
+from app.core.config import Settings, get_settings, validate_runtime_security_settings
 from app.core.errors import AppError
 from app.models.github_app_installation import GitHubAppInstallation
 from app.models.installation_repository import InstallationRepository
@@ -24,6 +24,22 @@ def test_production_rejects_default_session_secret():
 
     with pytest.raises(RuntimeError, match="SESSION_SECRET"):
         validate_runtime_security_settings(settings)
+
+
+def test_settings_ignore_blank_env_and_infer_vercel_production(monkeypatch):
+    monkeypatch.setenv("PR_QUALITY_ENV_FILE", "")
+    monkeypatch.setenv("APP_ENV", "")
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    monkeypatch.setenv("SESSION_COOKIE_SECURE", "")
+    get_settings.cache_clear()
+
+    settings = get_settings()
+
+    assert settings.app_env == "production"
+    assert settings.session_cookie_secure is False
+    with pytest.raises(RuntimeError, match="SESSION_SECRET"):
+        validate_runtime_security_settings(settings)
+    get_settings.cache_clear()
 
 
 def test_oauth_state_expires(reset_database, db_session):
