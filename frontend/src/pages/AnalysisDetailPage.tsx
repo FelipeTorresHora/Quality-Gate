@@ -142,6 +142,20 @@ export default function AnalysisDetailPage() {
         </div>
       </header>
 
+      <div className={`verdict-hero decision-${run.decision ?? "pending"}`}>
+        <div className="verdict-hero-main">
+          <StatusBadge value={run.decision} />
+          <div className="verdict-score">
+            {run.score ?? "—"}
+            <span> / 100</span>
+          </div>
+        </div>
+        <div className="workspace-meta">
+          <span>PR #{run.pr_number}</span>
+          <StatusBadge value={run.status} />
+        </div>
+      </div>
+
       <section className="metrics-grid six">
         <div className="metric">
           <span>Status</span>
@@ -533,9 +547,16 @@ function PillarSummary({
 }) {
   const blockingReasons = stringArray(value.blocking_reasons);
   const suggestions = stringArray(value.suggestions);
+  const pillarStatus = stringValue(value.status);
+  const pillarClass =
+    pillarStatus === "pass"
+      ? "panel pillar-card decision-pass"
+      : pillarStatus === "fail"
+        ? "panel pillar-card decision-fail"
+        : "panel pillar-card";
 
   return (
-    <section className="panel">
+    <section className={pillarClass}>
       <div className="panel-header">
         <div>
           <h2>{title}</h2>
