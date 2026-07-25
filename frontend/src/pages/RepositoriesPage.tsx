@@ -98,8 +98,8 @@ export default function RepositoriesPage() {
                         {repository.full_name}
                       </Link>
                     </td>
-                    <td>{repository.default_branch}</td>
-                    <td>{repository.github_repo_id}</td>
+                    <td className="mono-value">{repository.default_branch}</td>
+                    <td className="mono-value">{repository.github_repo_id}</td>
                   </tr>
                 ))}
               </tbody>

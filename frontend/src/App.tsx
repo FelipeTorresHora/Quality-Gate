@@ -28,6 +28,7 @@ function AuthenticatedApp({ user }: { user: CurrentUser }) {
           <span className="brand-mark">QG</span>
           <span>PR Quality Gate</span>
         </div>
+        <p className="eyebrow">Navigation</p>
         <nav className="nav-list">
           <NavLink to="/" end>
             Dashboard
@@ -35,7 +36,14 @@ function AuthenticatedApp({ user }: { user: CurrentUser }) {
           <NavLink to="/repositories">Repositories</NavLink>
         </nav>
         <div className="user-chip">
-          <span>{user.github_login}</span>
+          {user.avatar_url ? (
+            <img alt="" className="user-avatar" src={user.avatar_url} />
+          ) : (
+            <span className="user-avatar user-avatar-fallback">
+              {user.github_login.slice(0, 1).toUpperCase()}
+            </span>
+          )}
+          <span className="user-login">{user.github_login}</span>
           <button
             className="button small secondary"
             onClick={handleLogout}
