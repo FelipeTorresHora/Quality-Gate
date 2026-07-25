@@ -5,6 +5,7 @@ import { executeAnalysisRun, listAnalysisRuns } from "../api/client";
 import EmptyState from "../components/EmptyState";
 import ErrorMessage from "../components/ErrorMessage";
 import LoadingBlock from "../components/LoadingBlock";
+import RunTicker from "../components/RunTicker";
 import StatusBadge from "../components/StatusBadge";
 import type { RepositoryWorkspaceContext } from "./RepositoryDetailPage";
 import type { AnalysisRunSummary } from "../types/api";
@@ -57,58 +58,66 @@ export default function RepositoryAnalysisRunsPage() {
           Analyze a Pull Request from the Pull Requests tab.
         </EmptyState>
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>PR</th>
-                <th>Status</th>
-                <th>Decision</th>
-                <th>Score</th>
-                <th>Trigger</th>
-                <th>Head SHA</th>
-                <th>Created</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {runs.map((run) => (
-                <tr key={run.id}>
-                  <td>#{run.pr_number}</td>
-                  <td>
-                    <StatusBadge value={run.status} />
-                  </td>
-                  <td>
-                    <StatusBadge value={run.decision} />
-                  </td>
-                  <td>{run.score ?? "-"}</td>
-                  <td>
-                    <StatusBadge value={run.trigger_source} />
-                  </td>
-                  <td>
-                    <code className="mono-value">{shortSha(run.head_sha)}</code>
-                  </td>
-                  <td>{new Date(run.created_at).toLocaleString()}</td>
-                  <td>
-                    <div className="badge-row">
-                      {run.status === "pending" && (
-                        <button
-                          className="button small primary"
-                          disabled={executingRunId === run.id}
-                          onClick={() => executeRun(run.id)}
-                          type="button"
-                        >
-                          {executingRunId === run.id ? "Executing" : "Execute"}
-                        </button>
-                      )}
-                      <Link to={`/analysis-runs/${run.id}`}>Detail</Link>
-                    </div>
-                  </td>
+        <>
+          <div className="run-ticker-inset">
+            <RunTicker
+              getLabel={(run) => `#${run.pr_number} · ${run.decision ?? run.status}`}
+              runs={runs}
+            />
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>PR</th>
+                  <th>Status</th>
+                  <th>Decision</th>
+                  <th>Score</th>
+                  <th>Trigger</th>
+                  <th>Head SHA</th>
+                  <th>Created</th>
+                  <th></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {runs.map((run) => (
+                  <tr key={run.id}>
+                    <td>#{run.pr_number}</td>
+                    <td>
+                      <StatusBadge value={run.status} />
+                    </td>
+                    <td>
+                      <StatusBadge value={run.decision} />
+                    </td>
+                    <td className="mono-value">{run.score ?? "-"}</td>
+                    <td>
+                      <StatusBadge value={run.trigger_source} />
+                    </td>
+                    <td>
+                      <code className="mono-value">{shortSha(run.head_sha)}</code>
+                    </td>
+                    <td className="mono-value">{new Date(run.created_at).toLocaleString()}</td>
+                    <td>
+                      <div className="badge-row">
+                        {run.status === "pending" && (
+                          <button
+                            className="button small primary"
+                            disabled={executingRunId === run.id}
+                            onClick={() => executeRun(run.id)}
+                            type="button"
+                          >
+                            {executingRunId === run.id ? "Executing" : "Execute"}
+                          </button>
+                        )}
+                        <Link to={`/analysis-runs/${run.id}`}>Detail</Link>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </section>
   );
