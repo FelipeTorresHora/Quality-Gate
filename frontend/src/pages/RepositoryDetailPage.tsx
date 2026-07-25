@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useParams } from "react-router-dom";
 
-import { getRepository } from "../api/client";
+import { getRepository, listAnalysisRuns } from "../api/client";
 import ErrorMessage from "../components/ErrorMessage";
 import LoadingBlock from "../components/LoadingBlock";
+import RunTicker from "../components/RunTicker";
 import StatusBadge from "../components/StatusBadge";
-import type { Repository } from "../types/api";
+import type { AnalysisRunSummary, Repository } from "../types/api";
 
 export type RepositoryWorkspaceContext = {
   repository: Repository;
@@ -14,6 +15,7 @@ export type RepositoryWorkspaceContext = {
 export default function RepositoryDetailPage() {
   const { repositoryId } = useParams();
   const [repository, setRepository] = useState<Repository | null>(null);
+  const [runs, setRuns] = useState<AnalysisRunSummary[]>([]);
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
@@ -22,6 +24,9 @@ export default function RepositoryDetailPage() {
     }
     setError(null);
     getRepository(repositoryId).then(setRepository).catch(setError);
+    listAnalysisRuns(repositoryId)
+      .then(setRuns)
+      .catch(() => setRuns([]));
   }, [repositoryId]);
 
   if (error) {
@@ -55,6 +60,13 @@ export default function RepositoryDetailPage() {
           Repositories
         </Link>
       </header>
+
+      {runs.length > 0 && (
+        <RunTicker
+          getLabel={(run) => `#${run.pr_number} · ${run.decision ?? run.status}`}
+          runs={runs}
+        />
+      )}
 
       <nav className="workspace-tabs">
         <NavLink to="pull-requests">Pull Requests</NavLink>
