@@ -50,6 +50,11 @@ export default function AuthGate({
           <a className="button primary" href={getGitHubLoginUrl()}>
             Sign in with GitHub
           </a>
+          <div aria-hidden="true" className="auth-ticks">
+            {Array.from({ length: 24 }).map((_, index) => (
+              <span key={index} />
+            ))}
+          </div>
         </div>
       </main>
     );
