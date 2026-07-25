@@ -1,6 +1,8 @@
 .auth-screen {
   align-items: center;
-  background: #080807;
+  background:
+    radial-gradient(circle at 50% -10%, rgba(255, 178, 36, 0.16), transparent 55%),
+    var(--bg);
   display: flex;
   justify-content: center;
   min-height: 100vh;
@@ -19,7 +21,8 @@
 }
 
 .auth-panel h1 {
-  color: #ffffff;
+  color: var(--text-strong);
+  font-family: var(--font-display);
   font-size: 34px;
   line-height: 1.15;
   margin: 0;
@@ -30,29 +33,33 @@
   width: 100%;
 }
 
-.sidebar {
+.auth-ticks {
   display: flex;
-  flex-direction: column;
+  gap: 3px;
+  margin-top: 28px;
+  opacity: 0.7;
 }
 
-.user-chip {
-  align-items: center;
-  border-top: 1px solid #26241f;
-  color: #d8d3c6;
-  display: flex;
-  gap: 10px;
-  justify-content: space-between;
-  margin-top: auto;
-  padding-top: 18px;
+.auth-ticks span {
+  border-radius: 2px;
+  flex: 1 1 0;
+  height: 20px;
 }
 
-.user-chip span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.auth-ticks span:nth-child(3n + 1) {
+  background: var(--pass);
 }
 
-.user-chip button {
-  flex: 0 0 auto;
+.auth-ticks span:nth-child(3n + 2) {
+  background: var(--border);
+}
+
+.auth-ticks span:nth-child(3n) {
+  background: var(--warn);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-screen {
+    background: var(--bg);
+  }
 }
