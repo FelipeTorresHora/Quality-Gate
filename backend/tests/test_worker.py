@@ -5,13 +5,19 @@ from app import worker
 from app.services import analysis_queue
 
 
-def _make_run(db_session, repository_id, head_sha="sha-w"):
+def _make_run(
+    db_session,
+    repository_id,
+    head_sha="sha-w",
+    trigger_source=AnalysisTriggerSource.MANUAL,
+    status=AnalysisRunStatus.PENDING,
+):
     run = AnalysisRun(
         repository_id=repository_id,
         pr_number=7,
         head_sha=head_sha,
-        status=AnalysisRunStatus.PENDING,
-        trigger_source=AnalysisTriggerSource.MANUAL,
+        status=status,
+        trigger_source=trigger_source,
     )
     db_session.add(run)
     db_session.commit()
@@ -66,3 +72,80 @@ def test_process_next_job_marks_failed_on_execution_error(
     job = db_session.query(AnalysisJob).filter_by(analysis_run_id=run_id).one()
     assert job.status == "failed"
     assert job.last_error == "pipeline blew up"
+
+
+def test_process_next_job_publishes_webhook_triggered_runs(
+    repository, db_session, monkeypatch
+):
+    run_id = _make_run(
+        db_session,
+        repository["id"],
+        trigger_source=AnalysisTriggerSource.GITHUB_WEBHOOK,
+        status=AnalysisRunStatus.COMPLETED,
+    )
+    analysis_queue.enqueue(run_id)
+    monkeypatch.setattr(
+        "app.services.analysis_execution_service.execute_analysis_run",
+        lambda db, analysis_run_id: db.get(AnalysisRun, analysis_run_id),
+    )
+    published = []
+    monkeypatch.setattr(
+        "app.services.github_publication_service.publish_analysis_run_to_github",
+        lambda db, analysis_run_id: published.append(analysis_run_id),
+    )
+
+    assert worker.process_next_job() == run_id
+    assert published == [run_id]
+
+
+def test_process_next_job_skips_publish_for_manual_runs(
+    repository, db_session, monkeypatch
+):
+    run_id = _make_run(
+        db_session,
+        repository["id"],
+        trigger_source=AnalysisTriggerSource.MANUAL,
+        status=AnalysisRunStatus.COMPLETED,
+    )
+    analysis_queue.enqueue(run_id)
+    monkeypatch.setattr(
+        "app.services.analysis_execution_service.execute_analysis_run",
+        lambda db, analysis_run_id: db.get(AnalysisRun, analysis_run_id),
+    )
+    published = []
+    monkeypatch.setattr(
+        "app.services.github_publication_service.publish_analysis_run_to_github",
+        lambda db, analysis_run_id: published.append(analysis_run_id),
+    )
+
+    assert worker.process_next_job() == run_id
+    assert published == []
+
+
+def test_process_next_job_keeps_job_completed_when_publish_fails(
+    repository, db_session, monkeypatch
+):
+    run_id = _make_run(
+        db_session,
+        repository["id"],
+        trigger_source=AnalysisTriggerSource.GITHUB_WEBHOOK,
+        status=AnalysisRunStatus.COMPLETED,
+    )
+    analysis_queue.enqueue(run_id)
+    monkeypatch.setattr(
+        "app.services.analysis_execution_service.execute_analysis_run",
+        lambda db, analysis_run_id: db.get(AnalysisRun, analysis_run_id),
+    )
+
+    def boom(db, analysis_run_id):
+        raise RuntimeError("github unavailable")
+
+    monkeypatch.setattr(
+        "app.services.github_publication_service.publish_analysis_run_to_github",
+        boom,
+    )
+
+    assert worker.process_next_job() == run_id
+    db_session.expire_all()
+    job = db_session.query(AnalysisJob).filter_by(analysis_run_id=run_id).one()
+    assert job.status == "completed"
