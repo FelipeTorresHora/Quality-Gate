@@ -618,6 +618,22 @@ select:focus {
   padding: 12px 14px;
 }
 
+.warn-banner,
+.alert-warn {
+  background: var(--warn-soft);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 8px;
+  color: var(--warn);
+  padding: 12px 14px;
+}
+
+.warn-banner strong,
+.error-banner strong,
+.info-banner strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
 .empty-state,
 .loading-block {
   align-items: center;

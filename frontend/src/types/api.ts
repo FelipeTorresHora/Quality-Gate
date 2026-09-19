@@ -136,15 +136,20 @@ export type AIReviewSnapshot =
     }
   | Record<string, never>;
 
+export type CoverageLanguage = "python" | "typescript" | "javascript" | "go";
+
+export type CoverageReportFormat = "cobertura_xml" | "lcov" | "go_coverprofile";
+
 export type CoverageExecutionConfig = {
   id: string;
   repository_id: string;
-  language: "python" | "typescript" | "javascript" | "go";
+  language: CoverageLanguage;
+  language_preset_confirmed: boolean;
   install_command: string;
   working_directory: string;
   test_command: string;
   report_path: string;
-  report_format: "cobertura_xml" | "lcov" | "go_coverprofile";
+  report_format: CoverageReportFormat;
   created_at: string;
   updated_at: string;
 };

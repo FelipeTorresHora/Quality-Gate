@@ -9,8 +9,23 @@ def build_final_report(run: AnalysisRun, ai_review_json: dict) -> str:
         return build_operational_error_report(run)
 
     decision = run.decision.value.upper() if run.decision else "NO DECISION"
+    if run.decision and run.decision.value == "fail":
+        outcome_note = (
+            "This is a **quality-gate fail**. Gates finished and at least one "
+            "policy was not met (for example coverage below the threshold). "
+            "This is not an operational error."
+        )
+    elif run.decision and run.decision.value == "pass":
+        outcome_note = (
+            "This is a **quality-gate pass**. Required gates completed and met "
+            "their configured policies. This is not an operational error."
+        )
+    else:
+        outcome_note = "No Gate Decision was recorded for this Analysis Run."
     lines = [
         f"# AI Quality Gate: {decision}",
+        "",
+        outcome_note,
         "",
         f"**Gate Decision:** {decision}",
     ]
@@ -38,11 +53,16 @@ def build_operational_error_report(run: AnalysisRun) -> str:
     lines = [
         "# AI Quality Gate: OPERATIONAL ERROR",
         "",
-        "**Gate Decision:** No decision",
+        "This is **not** a quality-gate fail. A command, timeout, or missing "
+        "report stopped execution, so there is **no Gate Decision** for this "
+        "Pull Request.",
+        "",
+        "**Run Status:** error",
+        "**Gate Decision:** none",
         "",
         "## Summary",
         "",
-        run.error_message or "A required gate could not complete.",
+        run.error_message or "A required gate could not complete (command, timeout, or missing report).",
         "",
         "## Coverage",
         "",
