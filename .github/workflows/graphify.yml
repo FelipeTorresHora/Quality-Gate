@@ -41,17 +41,36 @@ jobs:
       - name: Rebuild code graph
         run: |
           export PATH="$HOME/.local/bin:$PATH"
+          cp graphify-out/graph.json /tmp/graphify-graph-committed.json
+          cp graphify-out/manifest.json /tmp/graphify-manifest-committed.json
           graphify extract . --code-only --no-viz
           graphify cluster-only . --no-label --no-viz
 
       - name: Assert graphify-out matches repository
         run: |
-          # GRAPH_REPORT.md embeds HEAD; only graph.json + manifest.json are stable checks.
-          git diff --exit-code \
-            graphify-out/graph.json \
-            graphify-out/manifest.json \
-            || {
-              echo "::error::graphify-out is stale. Run: graphify extract . --code-only && graphify cluster-only . --no-label"
-              echo "Then commit graphify-out/graph.json and graphify-out/manifest.json. See docs/graphify.md."
-              exit 1
-            }
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          def norm_graph(path: Path) -> str:
+              data = json.loads(path.read_text(encoding="utf-8"))
+              data.pop("built_at_commit", None)
+              return json.dumps(data, sort_keys=True)
+
+          committed_graph = norm_graph(Path("/tmp/graphify-graph-committed.json"))
+          rebuilt_graph = norm_graph(Path("graphify-out/graph.json"))
+          if committed_graph != rebuilt_graph:
+              raise SystemExit(
+                  "graphify-out/graph.json is stale (ignoring built_at_commit). "
+                  "Run: graphify extract . --code-only && graphify cluster-only . --no-label"
+              )
+
+          committed_manifest = Path("/tmp/graphify-manifest-committed.json").read_text(encoding="utf-8")
+          rebuilt_manifest = Path("graphify-out/manifest.json").read_text(encoding="utf-8")
+          if committed_manifest != rebuilt_manifest:
+              raise SystemExit(
+                  "graphify-out/manifest.json is stale. "
+                  "Run: graphify extract . --code-only && graphify cluster-only . --no-label"
+              )
+          print("graphify-out graph + manifest match AST rebuild")
+          PY
