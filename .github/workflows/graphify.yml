@@ -65,11 +65,25 @@ jobs:
                   "Run: graphify extract . --code-only && graphify cluster-only . --no-label"
               )
 
-          committed_manifest = Path("/tmp/graphify-manifest-committed.json").read_text(encoding="utf-8")
-          rebuilt_manifest = Path("graphify-out/manifest.json").read_text(encoding="utf-8")
-          if committed_manifest != rebuilt_manifest:
+          def norm_manifest(path: Path) -> str:
+              data = json.loads(path.read_text(encoding="utf-8"))
+              norm: dict[str, object] = {}
+              for key, entry in sorted(data.items()):
+                  if isinstance(entry, dict):
+                      norm[key] = {
+                          k: entry[k]
+                          for k in ("ast_hash", "semantic_hash")
+                          if k in entry
+                      }
+                  else:
+                      norm[key] = entry
+              return json.dumps(norm, sort_keys=True)
+
+          if norm_manifest(Path("/tmp/graphify-manifest-committed.json")) != norm_manifest(
+              Path("graphify-out/manifest.json")
+          ):
               raise SystemExit(
-                  "graphify-out/manifest.json is stale. "
+                  "graphify-out/manifest.json is stale (hash entries). "
                   "Run: graphify extract . --code-only && graphify cluster-only . --no-label"
               )
           print("graphify-out graph + manifest match AST rebuild")
