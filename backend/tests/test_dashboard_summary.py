@@ -353,6 +353,7 @@ def test_dashboard_summary_lists_outdated_open_pull_request(
 def test_dashboard_summary_lists_fail_with_publication_disabled(
     client, repository, monkeypatch
 ):
+    _disable_github_publication(repository["id"])
     _patch_open_pull_requests(monkeypatch, [_open_pull_request(3, "sha-fail")])
     _insert_run(
         repository["id"],
@@ -563,6 +564,14 @@ def _insert_run(
 
 
 def _enable_github_publication(repository_id: str) -> None:
+    _set_github_publication(repository_id, enabled=True)
+
+
+def _disable_github_publication(repository_id: str) -> None:
+    _set_github_publication(repository_id, enabled=False)
+
+
+def _set_github_publication(repository_id: str, *, enabled: bool) -> None:
     from app.models.quality_gate_config import QualityGateConfig
 
     with SessionLocal() as db:
@@ -571,8 +580,8 @@ def _enable_github_publication(repository_id: str) -> None:
             .filter(QualityGateConfig.repository_id == UUID(repository_id))
             .one()
         )
-        config.comment_on_github = True
-        config.publish_github_status = True
+        config.comment_on_github = enabled
+        config.publish_github_status = enabled
         db.commit()
 
 
