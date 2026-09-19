@@ -64,7 +64,7 @@ jobs:
         working-directory: backend
         run: |
           set -o pipefail
-          pytest -q --tb=short 2>&1 | tee pytest-output.txt
+          pytest -q --tb=short --cov=app --cov-report=term-missing --cov-config=.coveragerc 2>&1 | tee pytest-output.txt
           summary="$(tail -1 pytest-output.txt)"
           passed="$(printf '%s' "$summary" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+' | tail -1 || true)"
           skipped="$(printf '%s' "$summary" | grep -oE '[0-9]+ skipped' | grep -oE '[0-9]+' | tail -1 || true)"
