@@ -1,42 +1,39 @@
 import { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 
-import { executeAnalysisRun, listAnalysisRuns } from "../api/client";
+import { executeAnalysisRun } from "../api/client";
 import EmptyState from "../components/EmptyState";
 import ErrorMessage from "../components/ErrorMessage";
 import LoadingBlock from "../components/LoadingBlock";
 import RunTicker from "../components/RunTicker";
 import StatusBadge from "../components/StatusBadge";
 import type { RepositoryWorkspaceContext } from "./RepositoryDetailPage";
-import type { AnalysisRunSummary } from "../types/api";
 
 export default function RepositoryAnalysisRunsPage() {
-  const { repository } = useOutletContext<RepositoryWorkspaceContext>();
-  const [runs, setRuns] = useState<AnalysisRunSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { repository, runs, refreshRuns } = useOutletContext<RepositoryWorkspaceContext>();
+  const [loading, setLoading] = useState(runs.length === 0);
   const [error, setError] = useState<unknown>(null);
   const [actionError, setActionError] = useState<unknown>(null);
   const [executingRunId, setExecutingRunId] = useState<string | null>(null);
 
-  function loadRuns() {
+  useEffect(() => {
+    if (runs.length > 0) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
-    listAnalysisRuns(repository.id)
-      .then(setRuns)
+    refreshRuns()
       .catch(setError)
       .finally(() => setLoading(false));
-  }
-
-  useEffect(() => {
-    loadRuns();
-  }, [repository.id]);
+  }, [repository.id, refreshRuns, runs.length]);
 
   async function executeRun(analysisRunId: string) {
     setActionError(null);
     setExecutingRunId(analysisRunId);
     try {
       await executeAnalysisRun(analysisRunId);
-      loadRuns();
+      await refreshRuns();
     } catch (caught) {
       setActionError(caught);
     } finally {

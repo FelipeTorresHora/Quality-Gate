@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useParams } from "react-router-dom";
 
 import { getRepository, listAnalysisRuns } from "../api/client";
@@ -10,6 +10,8 @@ import type { AnalysisRunSummary, Repository } from "../types/api";
 
 export type RepositoryWorkspaceContext = {
   repository: Repository;
+  runs: AnalysisRunSummary[];
+  refreshRuns: () => Promise<void>;
 };
 
 export default function RepositoryDetailPage() {
@@ -18,16 +20,23 @@ export default function RepositoryDetailPage() {
   const [runs, setRuns] = useState<AnalysisRunSummary[]>([]);
   const [error, setError] = useState<unknown>(null);
 
+  const refreshRuns = useCallback(() => {
+    if (!repositoryId) {
+      return Promise.resolve();
+    }
+    return listAnalysisRuns(repositoryId)
+      .then(setRuns)
+      .catch(() => setRuns([]));
+  }, [repositoryId]);
+
   useEffect(() => {
     if (!repositoryId) {
       return;
     }
     setError(null);
     getRepository(repositoryId).then(setRepository).catch(setError);
-    listAnalysisRuns(repositoryId)
-      .then(setRuns)
-      .catch(() => setRuns([]));
-  }, [repositoryId]);
+    refreshRuns();
+  }, [repositoryId, refreshRuns]);
 
   if (error) {
     return (
@@ -74,7 +83,9 @@ export default function RepositoryDetailPage() {
         <NavLink to="analysis-runs">Analysis History</NavLink>
       </nav>
 
-      <Outlet context={{ repository } satisfies RepositoryWorkspaceContext} />
+      <Outlet
+        context={{ repository, runs, refreshRuns } satisfies RepositoryWorkspaceContext}
+      />
     </div>
   );
 }
