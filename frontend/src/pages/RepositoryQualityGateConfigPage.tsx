@@ -118,29 +118,37 @@ export default function RepositoryQualityGateConfigPage() {
             <div>
               <h2>Coverage Execution</h2>
               <p className="panel-subtitle">
-                Commands and report location used before applying coverage policy.
+                Language presets fill install, test, and report settings. You can
+                still edit the commands after choosing a preset.
               </p>
             </div>
           </div>
+          {!coverageExecutionConfig.language_preset_confirmed && (
+            <div className="warn-banner">
+              <strong>Default Python preset — confirm</strong>
+              GitHub language was missing or not Python, JavaScript, TypeScript,
+              or Go. Commands below are the Python default. Choose the right
+              language preset and save to confirm.
+            </div>
+          )}
           <div className="settings-form">
             <label>
-              Language
+              Language preset
               <select
                 value={coverageExecutionConfig.language}
                 onChange={(event) =>
                   setCoverageExecutionConfig({
                     ...coverageExecutionConfig,
-                    language: event.target.value as CoverageExecutionConfig["language"],
-                    report_format: defaultReportFormat(
+                    ...coveragePreset(
                       event.target.value as CoverageExecutionConfig["language"]
                     )
                   })
                 }
               >
-                <option value="python">python</option>
-                <option value="typescript">typescript</option>
-                <option value="javascript">javascript</option>
-                <option value="go">go</option>
+                <option value="python">Python (pip / pytest / Cobertura)</option>
+                <option value="typescript">TypeScript (npm / LCOV)</option>
+                <option value="javascript">JavaScript (npm / LCOV)</option>
+                <option value="go">Go (go test / coverprofile)</option>
               </select>
             </label>
             <label>
@@ -445,14 +453,35 @@ export default function RepositoryQualityGateConfigPage() {
   );
 }
 
-function defaultReportFormat(
+function coveragePreset(
   language: CoverageExecutionConfig["language"]
-): CoverageExecutionConfig["report_format"] {
+): Pick<
+  CoverageExecutionConfig,
+  "language" | "install_command" | "test_command" | "report_path" | "report_format"
+> {
   if (language === "go") {
-    return "go_coverprofile";
+    return {
+      language,
+      install_command: "go mod download",
+      test_command: "go test ./... -coverprofile=coverage.out",
+      report_path: "coverage.out",
+      report_format: "go_coverprofile"
+    };
   }
   if (language === "python") {
-    return "cobertura_xml";
+    return {
+      language,
+      install_command: "pip install -r requirements.txt",
+      test_command: "pytest --cov=. --cov-report=xml:coverage.xml",
+      report_path: "coverage.xml",
+      report_format: "cobertura_xml"
+    };
   }
-  return "lcov";
+  return {
+    language,
+    install_command: "npm ci",
+    test_command: "npm test -- --coverage",
+    report_path: "coverage/lcov.info",
+    report_format: "lcov"
+  };
 }

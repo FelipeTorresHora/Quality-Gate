@@ -142,7 +142,7 @@ export default function AnalysisDetailPage() {
         </div>
       </header>
 
-      <div className={`verdict-hero decision-${run.decision ?? "pending"}`}>
+      <div className={`verdict-hero ${verdictHeroClass(run)}`}>
         <div className="verdict-hero-main">
           <StatusBadge value={run.decision} />
           <div className="verdict-score">
@@ -155,6 +155,28 @@ export default function AnalysisDetailPage() {
           <StatusBadge value={run.status} />
         </div>
       </div>
+
+      {isOperationalError(run) ? (
+        <div className="warn-banner">
+          <strong>Operational error — no Gate Decision</strong>
+          Command, timeout, or missing report stopped execution. The quality
+          gate did not pass or fail this Pull Request. This is not a coverage,
+          security, or technical-debt fail.
+        </div>
+      ) : null}
+      {run.decision === "fail" ? (
+        <div className="error-banner">
+          <strong>Quality-gate fail</strong>
+          Gates finished and at least one policy was not met (for example
+          coverage below the threshold). This is not an operational error.
+        </div>
+      ) : null}
+      {run.decision === "pass" ? (
+        <div className="info-banner">
+          <strong>Quality-gate pass</strong>
+          Required gates completed and met their configured policies.
+        </div>
+      ) : null}
 
       <section className="metrics-grid six">
         <div className="metric">
@@ -210,12 +232,9 @@ export default function AnalysisDetailPage() {
         </div>
       </section>
 
-      {run.error_message && <div className="error-banner">{run.error_message}</div>}
-      {run.status === "error" && run.decision === null && (
-        <div className="error-banner">
-          Gate execution stopped because a required gate hit an operational error.
-          Partial evidence below may be useful for diagnosis, but this run has no
-          pass/fail quality decision.
+      {run.error_message && (
+        <div className={isOperationalError(run) ? "warn-banner" : "error-banner"}>
+          {run.error_message}
         </div>
       )}
       {canPublish && publishingEnabled && qualityConfig && (
@@ -676,6 +695,17 @@ function JsonPanel({
       <pre className="json-block">{JSON.stringify(value, null, 2)}</pre>
     </section>
   );
+}
+
+function isOperationalError(run: AnalysisRunDetail) {
+  return run.status === "error" && run.decision === null;
+}
+
+function verdictHeroClass(run: AnalysisRunDetail) {
+  if (isOperationalError(run)) {
+    return "decision-pending";
+  }
+  return `decision-${run.decision ?? "pending"}`;
 }
 
 function hasPullRequestSnapshot(
