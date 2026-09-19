@@ -29,6 +29,7 @@ def test_dashboard_summary_requires_authentication(client, monkeypatch):
             "recent_analysis_runs": [],
             "finding_counts": [],
             "top_blocking_categories": [],
+            "open_pull_requests_needing_action": [],
         },
     )
 
@@ -64,6 +65,7 @@ def test_dashboard_summary_with_no_data(client, db_session):
         "recent_analysis_runs": [],
         "finding_counts": [],
         "top_blocking_categories": [],
+        "open_pull_requests_needing_action": [],
     }
 
 
@@ -82,6 +84,7 @@ def test_dashboard_summary_cache_hit_skips_service(client, repository, monkeypat
         "recent_analysis_runs": [],
         "finding_counts": [],
         "top_blocking_categories": [],
+        "open_pull_requests_needing_action": [],
     }
     monkeypatch.setattr(
         "app.api.routes_dashboard.runtime_cache_service.get_json",
@@ -117,7 +120,7 @@ def test_dashboard_summary_cache_miss_stores_payload(
 
     assert response.status_code == 200
     assert writes
-    assert writes[0]["key"].startswith("dashboard-summary:v1:user:")
+    assert writes[0]["key"].startswith("dashboard-summary:v2:user:")
     assert writes[0]["ttl"] == 60
     assert "dashboard-summary" in writes[0]["tags"]
     assert writes[0]["value"] == response.json()
@@ -269,6 +272,251 @@ def test_dashboard_summary_reports_top_blocking_categories(client, repository):
     ]
 
 
+def test_dashboard_summary_lists_open_failing_pull_request(
+    client, repository, monkeypatch
+):
+    _enable_github_publication(repository["id"])
+    _patch_open_pull_requests(monkeypatch, [_open_pull_request(2, "sha-fail")])
+    run_id = _insert_run(
+        repository["id"],
+        2,
+        "sha-fail",
+        AnalysisRunStatus.COMPLETED,
+        decision=GateDecision.FAIL,
+        snapshot={"html_url": "https://github.com/horinha04/meu-projeto/pull/2"},
+    )
+
+    response = client.get("/api/dashboard/summary")
+
+    assert response.status_code == 200
+    queue = response.json()["open_pull_requests_needing_action"]
+    assert len(queue) == 1
+    item = queue[0]
+    assert item["repository_full_name"] == "horinha04/meu-projeto"
+    assert item["pr_number"] == 2
+    assert item["pr_title"] == "Fix coverage"
+    assert item["html_url"] == "https://github.com/horinha04/meu-projeto/pull/2"
+    assert item["head_sha"] == "sha-fail"
+    assert item["analysis_run_id"] == run_id
+    assert item["status"] == "completed"
+    assert item["decision"] == "fail"
+    assert item["review_state"] == "current"
+    assert item["action"] == "fail"
+
+
+def test_dashboard_summary_lists_open_operational_error_pull_request(
+    client, repository, monkeypatch
+):
+    _patch_open_pull_requests(monkeypatch, [_open_pull_request(5, "sha-error")])
+    run_id = _insert_run(
+        repository["id"],
+        5,
+        "sha-error",
+        AnalysisRunStatus.ERROR,
+    )
+
+    response = client.get("/api/dashboard/summary")
+
+    assert response.status_code == 200
+    item = response.json()["open_pull_requests_needing_action"][0]
+    assert item["analysis_run_id"] == run_id
+    assert item["status"] == "error"
+    assert item["decision"] is None
+    assert item["review_state"] == "current"
+    assert item["action"] == "error"
+
+
+def test_dashboard_summary_lists_outdated_open_pull_request(
+    client, repository, monkeypatch
+):
+    _enable_github_publication(repository["id"])
+    _patch_open_pull_requests(monkeypatch, [_open_pull_request(8, "sha-new")])
+    run_id = _insert_run(
+        repository["id"],
+        8,
+        "sha-old",
+        AnalysisRunStatus.COMPLETED,
+        decision=GateDecision.PASS,
+    )
+
+    response = client.get("/api/dashboard/summary")
+
+    assert response.status_code == 200
+    item = response.json()["open_pull_requests_needing_action"][0]
+    assert item["analysis_run_id"] == run_id
+    assert item["head_sha"] == "sha-new"
+    assert item["decision"] == "pass"
+    assert item["review_state"] == "outdated"
+    assert item["action"] == "outdated"
+
+
+def test_dashboard_summary_lists_fail_with_publication_disabled(
+    client, repository, monkeypatch
+):
+    _disable_github_publication(repository["id"])
+    _patch_open_pull_requests(monkeypatch, [_open_pull_request(3, "sha-fail")])
+    _insert_run(
+        repository["id"],
+        3,
+        "sha-fail",
+        AnalysisRunStatus.COMPLETED,
+        decision=GateDecision.FAIL,
+    )
+
+    response = client.get("/api/dashboard/summary")
+
+    assert response.status_code == 200
+    item = response.json()["open_pull_requests_needing_action"][0]
+    assert item["action"] == "publication_off"
+    assert item["comment_on_github"] is False
+    assert item["publish_github_status"] is False
+    assert item["review_state"] == "current"
+    assert item["decision"] == "fail"
+
+
+def test_dashboard_summary_omits_closed_and_passing_open_pull_requests(
+    client, repository, monkeypatch
+):
+    _enable_github_publication(repository["id"])
+    listed_repos = []
+
+    def fake_list_repository_pull_requests(db, repository_id):
+        listed_repos.append(str(repository_id))
+        return [_open_pull_request(2, "sha-fail")]
+
+    monkeypatch.setattr(
+        "app.services.dashboard_service.github_service.list_repository_pull_requests",
+        fake_list_repository_pull_requests,
+    )
+    _insert_run(
+        repository["id"],
+        1,
+        "sha-closed",
+        AnalysisRunStatus.COMPLETED,
+        decision=GateDecision.FAIL,
+    )
+    _insert_run(
+        repository["id"],
+        2,
+        "sha-fail",
+        AnalysisRunStatus.COMPLETED,
+        decision=GateDecision.FAIL,
+    )
+    _insert_run(
+        repository["id"],
+        4,
+        "sha-pass",
+        AnalysisRunStatus.COMPLETED,
+        decision=GateDecision.PASS,
+    )
+
+    response = client.get("/api/dashboard/summary")
+
+    assert response.status_code == 200
+    queue = response.json()["open_pull_requests_needing_action"]
+    assert [item["pr_number"] for item in queue] == [2]
+    assert listed_repos == [repository["id"]]
+
+
+def test_dashboard_summary_skips_github_when_no_candidate_runs(
+    client, repository, monkeypatch
+):
+    def fail_list_repository_pull_requests(*args, **kwargs):
+        raise AssertionError("GitHub should not be queried without candidate runs")
+
+    monkeypatch.setattr(
+        "app.services.dashboard_service.github_service.list_repository_pull_requests",
+        fail_list_repository_pull_requests,
+    )
+
+    response = client.get("/api/dashboard/summary")
+
+    assert response.status_code == 200
+    assert response.json()["open_pull_requests_needing_action"] == []
+
+
+def test_dashboard_summary_omits_stale_runs_outside_action_window(
+    client, repository, monkeypatch
+):
+    from datetime import UTC, datetime, timedelta
+
+    _enable_github_publication(repository["id"])
+    _patch_open_pull_requests(monkeypatch, [_open_pull_request(9, "sha-old")])
+    _insert_run(
+        repository["id"],
+        9,
+        "sha-old",
+        AnalysisRunStatus.COMPLETED,
+        decision=GateDecision.FAIL,
+        created_at=datetime.now(UTC) - timedelta(days=15),
+    )
+
+    response = client.get("/api/dashboard/summary")
+
+    assert response.status_code == 200
+    assert response.json()["open_pull_requests_needing_action"] == []
+
+
+def test_dashboard_summary_uses_latest_run_per_open_pull_request(
+    client, repository, monkeypatch
+):
+    from datetime import UTC, datetime, timedelta
+
+    _enable_github_publication(repository["id"])
+    _patch_open_pull_requests(monkeypatch, [_open_pull_request(11, "sha-new")])
+    _insert_run(
+        repository["id"],
+        11,
+        "sha-old",
+        AnalysisRunStatus.COMPLETED,
+        decision=GateDecision.FAIL,
+        created_at=datetime.now(UTC) - timedelta(hours=2),
+    )
+    latest = _insert_run(
+        repository["id"],
+        11,
+        "sha-new",
+        AnalysisRunStatus.COMPLETED,
+        decision=GateDecision.FAIL,
+        created_at=datetime.now(UTC) - timedelta(hours=1),
+    )
+
+    response = client.get("/api/dashboard/summary")
+
+    assert response.status_code == 200
+    item = response.json()["open_pull_requests_needing_action"][0]
+    assert item["analysis_run_id"] == latest
+    assert item["review_state"] == "current"
+    assert item["action"] == "fail"
+
+
+def test_dashboard_summary_survives_github_hydration_failure(
+    client, repository, monkeypatch
+):
+    from app.core.errors import AppError
+
+    _enable_github_publication(repository["id"])
+    _insert_run(
+        repository["id"],
+        2,
+        "sha-fail",
+        AnalysisRunStatus.COMPLETED,
+        decision=GateDecision.FAIL,
+    )
+    monkeypatch.setattr(
+        "app.services.dashboard_service.github_service.list_repository_pull_requests",
+        lambda db, repository_id: (_ for _ in ()).throw(
+            AppError(502, "github_request_failed", "GitHub API request failed.")
+        ),
+    )
+
+    response = client.get("/api/dashboard/summary")
+
+    assert response.status_code == 200
+    assert response.json()["open_pull_requests_needing_action"] == []
+    assert response.json()["total_analysis_runs"] == 1
+
+
 def _insert_run(
     repository_id: str,
     pr_number: int,
@@ -276,6 +524,8 @@ def _insert_run(
     status: AnalysisRunStatus,
     decision: GateDecision | None = None,
     findings: list[tuple[FindingCategory, FindingSeverity, bool]] | None = None,
+    snapshot: dict | None = None,
+    created_at=None,
 ) -> str:
     with SessionLocal() as db:
         run = AnalysisRun(
@@ -289,7 +539,7 @@ def _insert_run(
             security_result_json={},
             technical_debt_result_json={},
             ai_review_json={},
-            pull_request_snapshot_json={},
+            pull_request_snapshot_json=snapshot or {},
             changed_files_snapshot_json=[],
             diff_truncated=False,
         )
@@ -306,5 +556,55 @@ def _insert_run(
                 )
             )
         db.add(run)
+        db.flush()
+        if created_at is not None:
+            run.created_at = created_at
         db.commit()
         return str(run.id)
+
+
+def _enable_github_publication(repository_id: str) -> None:
+    _set_github_publication(repository_id, enabled=True)
+
+
+def _disable_github_publication(repository_id: str) -> None:
+    _set_github_publication(repository_id, enabled=False)
+
+
+def _set_github_publication(repository_id: str, *, enabled: bool) -> None:
+    from app.models.quality_gate_config import QualityGateConfig
+
+    with SessionLocal() as db:
+        config = (
+            db.query(QualityGateConfig)
+            .filter(QualityGateConfig.repository_id == UUID(repository_id))
+            .one()
+        )
+        config.comment_on_github = enabled
+        config.publish_github_status = enabled
+        db.commit()
+
+
+def _open_pull_request(number: int, head_sha: str):
+    from app.schemas.github import GitHubPullRequestRead
+
+    return GitHubPullRequestRead(
+        number=number,
+        title="Fix coverage",
+        user_login="octocat",
+        state="open",
+        draft=False,
+        head_ref="feature/coverage",
+        head_sha=head_sha,
+        base_ref="main",
+        html_url=f"https://github.com/horinha04/meu-projeto/pull/{number}",
+        created_at="2026-06-21T10:00:00Z",
+        updated_at="2026-06-21T11:00:00Z",
+    )
+
+
+def _patch_open_pull_requests(monkeypatch, pull_requests):
+    monkeypatch.setattr(
+        "app.services.dashboard_service.github_service.list_repository_pull_requests",
+        lambda db, repository_id: pull_requests,
+    )

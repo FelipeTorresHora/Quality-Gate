@@ -565,7 +565,8 @@ select:focus {
 .status-warning,
 .status-skipped,
 .status-outdated,
-.status-draft {
+.status-draft,
+.status-publication_off {
   background: var(--warn-soft);
   color: var(--warn);
 }
