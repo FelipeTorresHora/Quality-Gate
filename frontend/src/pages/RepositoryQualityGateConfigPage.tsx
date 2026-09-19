@@ -51,28 +51,47 @@ export default function RepositoryQualityGateConfigPage() {
     }
   }
 
+  async function saveQualityGatePolicy(next: QualityGateConfig) {
+    setError(null);
+    const updated = await updateQualityGateConfig(repository.id, {
+      min_total_coverage: next.min_total_coverage,
+      max_coverage_drop: next.max_coverage_drop,
+      min_changed_files_coverage: next.min_changed_files_coverage,
+      coverage_enabled: next.coverage_enabled,
+      security_fail_on: next.security_fail_on,
+      security_enabled: next.security_enabled,
+      max_function_lines: next.max_function_lines,
+      max_complexity: next.max_complexity,
+      fail_on_new_todo: next.fail_on_new_todo,
+      technical_debt_enabled: next.technical_debt_enabled,
+      comment_on_github: next.comment_on_github,
+      publish_github_status: next.publish_github_status
+    });
+    setConfig(updated);
+  }
+
   async function handleConfigSubmit(event: FormEvent) {
     event.preventDefault();
     if (!config) {
       return;
     }
-    setError(null);
     try {
-      const updated = await updateQualityGateConfig(repository.id, {
-        min_total_coverage: config.min_total_coverage,
-        max_coverage_drop: config.max_coverage_drop,
-        min_changed_files_coverage: config.min_changed_files_coverage,
-        coverage_enabled: config.coverage_enabled,
-        security_fail_on: config.security_fail_on,
-        security_enabled: config.security_enabled,
-        max_function_lines: config.max_function_lines,
-        max_complexity: config.max_complexity,
-        fail_on_new_todo: config.fail_on_new_todo,
-        technical_debt_enabled: config.technical_debt_enabled,
-        comment_on_github: config.comment_on_github,
-        publish_github_status: config.publish_github_status
+      await saveQualityGatePolicy(config);
+    } catch (caught) {
+      setError(caught);
+    }
+  }
+
+  async function enablePullRequestPublication() {
+    if (!config) {
+      return;
+    }
+    try {
+      await saveQualityGatePolicy({
+        ...config,
+        comment_on_github: true,
+        publish_github_status: true
       });
-      setConfig(updated);
     } catch (caught) {
       setError(caught);
     }
@@ -369,8 +388,34 @@ export default function RepositoryQualityGateConfigPage() {
 
         <section className="panel">
           <div className="panel-header">
-            <h2>GitHub Publishing</h2>
+            <div>
+              <h2>GitHub Publishing</h2>
+              <p className="panel-subtitle">
+                When enabled, the bot posts a pending commit status as soon as
+                analysis starts, then a pass/fail/error status and Pull Request
+                comment when it finishes. This is not a required GitHub check
+                and does not block merge.
+              </p>
+            </div>
           </div>
+          {!config.comment_on_github || !config.publish_github_status ? (
+            <div className="info-banner">
+              <p>
+                Existing repositories keep publication off until you enable it.
+                Turn on comment and commit status together to show the quality
+                gate on Pull Requests.
+              </p>
+              <div className="form-actions panel-actions">
+                <button
+                  className="button primary"
+                  type="button"
+                  onClick={enablePullRequestPublication}
+                >
+                  Publicar na Pull Request
+                </button>
+              </div>
+            </div>
+          ) : null}
           <div className="settings-form">
             <label className="checkbox-line">
               <input
