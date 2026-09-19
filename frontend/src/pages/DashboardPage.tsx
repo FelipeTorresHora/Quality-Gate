@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { getDashboardSummary } from "../api/client";
 import AlertsPanel from "../components/AlertsPanel";
-import FindingsBar from "../components/charts/FindingsBar";
-import RunStatusDonut from "../components/charts/RunStatusDonut";
-import ScoreSparkline from "../components/charts/ScoreSparkline";
+const FindingsBar = lazy(() => import("../components/charts/FindingsBar"));
+const RunStatusDonut = lazy(() => import("../components/charts/RunStatusDonut"));
+const ScoreSparkline = lazy(() => import("../components/charts/ScoreSparkline"));
 import EmptyState from "../components/EmptyState";
 import ErrorMessage from "../components/ErrorMessage";
 import InsightCards from "../components/InsightCards";
@@ -16,7 +16,14 @@ import { deriveAlerts, deriveInsights } from "../lib/insights";
 import type { DashboardOpenPullRequestAction, DashboardSummary } from "../types/api";
 
 const runStatuses = ["pending", "running", "completed", "error"] as const;
-const gateDecisions = ["pass", "fail"] as const;
+function ChartPlaceholder({ small = false }: { small?: boolean }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={small ? "chart-panel small chart-panel-loading" : "chart-panel chart-panel-loading"}
+    />
+  );
+}
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -128,12 +135,14 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="split-layout even">
+      <section className="split-layout even dashboard-below-fold">
         <div className="panel">
           <div className="panel-header">
             <h2>Run Status</h2>
           </div>
-          <RunStatusDonut counts={summary.run_status_counts} />
+          <Suspense fallback={<ChartPlaceholder />}>
+            <RunStatusDonut counts={summary.run_status_counts} />
+          </Suspense>
           <div className="compact-list">
             {runStatuses.map((status) => (
               <div className="compact-row" key={status}>
@@ -153,18 +162,22 @@ export default function DashboardPage() {
               Findings will appear after Pull Request analyses.
             </EmptyState>
           ) : (
-            <FindingsBar findingCounts={summary.finding_counts} />
+            <Suspense fallback={<ChartPlaceholder />}>
+              <FindingsBar findingCounts={summary.finding_counts} />
+            </Suspense>
           )}
         </div>
       </section>
 
       {summary.recent_analysis_runs.length > 0 && (
-        <section className="panel">
+        <section className="panel dashboard-below-fold">
           <div className="panel-header">
             <h2>Score Trend</h2>
             <p className="panel-subtitle">Recent completed runs, chronological</p>
           </div>
-          <ScoreSparkline runs={summary.recent_analysis_runs} />
+          <Suspense fallback={<ChartPlaceholder small />}>
+            <ScoreSparkline runs={summary.recent_analysis_runs} />
+          </Suspense>
         </section>
       )}
 

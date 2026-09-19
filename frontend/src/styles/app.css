@@ -1046,6 +1046,20 @@ select:focus {
   height: 180px;
 }
 
+.chart-panel-loading {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.02) 0%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  border-radius: 8px;
+}
+
+.dashboard-below-fold {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
+}
+
 /* ---------- Analysis detail: verdict hero ---------- */
 
 .verdict-hero {

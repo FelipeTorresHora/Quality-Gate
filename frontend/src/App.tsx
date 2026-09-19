@@ -1,16 +1,21 @@
+import { lazy, Suspense } from "react";
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 
 import { logout } from "./api/client";
 import AuthGate from "./components/AuthGate";
-import AnalysisDetailPage from "./pages/AnalysisDetailPage";
-import DashboardPage from "./pages/DashboardPage";
-import RepositoryAnalysisRunsPage from "./pages/RepositoryAnalysisRunsPage";
-import RepositoryDetailPage from "./pages/RepositoryDetailPage";
-import RepositoryPullRequestsPage from "./pages/RepositoryPullRequestsPage";
-import RepositoryQualityGateConfigPage from "./pages/RepositoryQualityGateConfigPage";
-import HelpPage from "./pages/HelpPage";
-import RepositoriesPage from "./pages/RepositoriesPage";
+import PageFallback from "./components/PageFallback";
 import type { CurrentUser } from "./types/api";
+
+const AnalysisDetailPage = lazy(() => import("./pages/AnalysisDetailPage"));
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const HelpPage = lazy(() => import("./pages/HelpPage"));
+const RepositoriesPage = lazy(() => import("./pages/RepositoriesPage"));
+const RepositoryAnalysisRunsPage = lazy(() => import("./pages/RepositoryAnalysisRunsPage"));
+const RepositoryDetailPage = lazy(() => import("./pages/RepositoryDetailPage"));
+const RepositoryPullRequestsPage = lazy(() => import("./pages/RepositoryPullRequestsPage"));
+const RepositoryQualityGateConfigPage = lazy(
+  () => import("./pages/RepositoryQualityGateConfigPage")
+);
 
 export default function App() {
   return <AuthGate>{(user) => <AuthenticatedApp user={user} />}</AuthGate>;
@@ -56,21 +61,23 @@ function AuthenticatedApp({ user }: { user: CurrentUser }) {
         </div>
       </aside>
       <main className="main-content">
-        <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/repositories" element={<RepositoriesPage />} />
-          <Route path="/help" element={<HelpPage />} />
-          <Route path="/repositories/:repositoryId" element={<RepositoryDetailPage />}>
-            <Route index element={<Navigate replace to="pull-requests" />} />
-            <Route path="pull-requests" element={<RepositoryPullRequestsPage />} />
-            <Route
-              path="quality-gate-config"
-              element={<RepositoryQualityGateConfigPage />}
-            />
-            <Route path="analysis-runs" element={<RepositoryAnalysisRunsPage />} />
-          </Route>
-          <Route path="/analysis-runs/:analysisRunId" element={<AnalysisDetailPage />} />
-        </Routes>
+        <Suspense fallback={<PageFallback />}>
+          <Routes>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/repositories" element={<RepositoriesPage />} />
+            <Route path="/help" element={<HelpPage />} />
+            <Route path="/repositories/:repositoryId" element={<RepositoryDetailPage />}>
+              <Route index element={<Navigate replace to="pull-requests" />} />
+              <Route path="pull-requests" element={<RepositoryPullRequestsPage />} />
+              <Route
+                path="quality-gate-config"
+                element={<RepositoryQualityGateConfigPage />}
+              />
+              <Route path="analysis-runs" element={<RepositoryAnalysisRunsPage />} />
+            </Route>
+            <Route path="/analysis-runs/:analysisRunId" element={<AnalysisDetailPage />} />
+          </Routes>
+        </Suspense>
       </main>
     </div>
   );

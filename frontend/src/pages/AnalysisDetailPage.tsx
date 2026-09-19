@@ -44,18 +44,20 @@ export default function AnalysisDetailPage() {
       .catch(setError);
   }, [analysisRunId]);
 
+  const runStatus = run?.status;
+
   useEffect(() => {
-    if (!analysisRunId || !run) {
+    if (!analysisRunId || !runStatus) {
       return;
     }
-    if (run.status !== "pending" && run.status !== "running") {
+    if (runStatus !== "pending" && runStatus !== "running") {
       return;
     }
     const timer = setTimeout(() => {
       getAnalysisRun(analysisRunId).then(setRun).catch(setError);
     }, 3000);
     return () => clearTimeout(timer);
-  }, [analysisRunId, run]);
+  }, [analysisRunId, runStatus]);
 
   if (error) {
     return (
