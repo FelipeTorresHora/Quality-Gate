@@ -31,7 +31,7 @@ def get_coverage_execution_config(
 ):
     require_repository_access(db, current_user, repository_id)
     settings = get_settings()
-    cache_key = f"coverage-config:v1:repo:{repository_id}"
+    cache_key = f"coverage-config:v2:repo:{repository_id}"
     cached = runtime_cache_service.get_json(cache_key)
     if cached is not None:
         return cached

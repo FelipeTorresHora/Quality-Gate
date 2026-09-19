@@ -44,6 +44,7 @@ class CoverageExecutionConfigRead(BaseModel):
     id: UUID
     repository_id: UUID
     language: CoverageLanguageValue
+    language_preset_confirmed: bool
     install_command: str
     working_directory: str
     test_command: str

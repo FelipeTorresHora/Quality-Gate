@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import AppError
-from app.models.coverage_execution_config import CoverageExecutionConfig
 from app.models.github_app_installation import GitHubAppInstallation
 from app.models.github_connection import GitHubConnection
 from app.models.installation_repository import InstallationRepository
@@ -15,7 +14,11 @@ from app.models.quality_gate_config import QualityGateConfig
 from app.models.repository import Repository
 from app.models.user import User
 from app.models.user_repository_access import UserRepositoryAccess
-from app.services import runtime_cache_service, token_crypto_service
+from app.services import (
+    coverage_execution_config_service,
+    runtime_cache_service,
+    token_crypto_service,
+)
 
 
 def sync_installation_payload(
@@ -233,7 +236,11 @@ def _upsert_repository(db: Session, payload: dict) -> Repository:
     if repository is None:
         repository = Repository(github_repo_id=github_repo_id)
         repository.quality_gate_config = QualityGateConfig()
-        repository.coverage_execution_config = CoverageExecutionConfig()
+        repository.coverage_execution_config = (
+            coverage_execution_config_service.build_coverage_execution_config(
+                github_language=payload.get("language"),
+            )
+        )
         db.add(repository)
     repository.github_repo_id = github_repo_id
     repository.owner = payload["owner"]["login"]

@@ -5,7 +5,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
-from app.models.coverage_execution_config import CoverageExecutionConfig
 from app.models.github_app_installation import GitHubAppInstallation
 from app.models.quality_gate_config import QualityGateConfig
 from app.models.repository import Repository
@@ -60,6 +59,10 @@ def create_repository(db: Session, payload: RepositoryCreate) -> Repository:
             f"Repository {payload.full_name} is already registered.",
         )
 
+    from app.services.coverage_execution_config_service import (
+        build_coverage_execution_config,
+    )
+
     repository = Repository(
         github_repo_id=payload.github_repo_id,
         owner=payload.owner,
@@ -68,7 +71,7 @@ def create_repository(db: Session, payload: RepositoryCreate) -> Repository:
         default_branch=payload.default_branch,
     )
     repository.quality_gate_config = QualityGateConfig()
-    repository.coverage_execution_config = CoverageExecutionConfig()
+    repository.coverage_execution_config = build_coverage_execution_config()
     db.add(repository)
     try:
         db.commit()
