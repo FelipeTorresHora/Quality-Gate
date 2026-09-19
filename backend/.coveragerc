@@ -1,0 +1,9 @@
+[run]
+source = app
+branch = false
+
+[report]
+precision = 2
+show_missing = true
+skip_empty = true
+fail_under = 99
