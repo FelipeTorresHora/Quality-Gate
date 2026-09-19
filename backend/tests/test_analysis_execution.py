@@ -436,6 +436,8 @@ def test_execute_pending_run_completes_with_fail_when_any_gate_fails(
     assert run["coverage_result_json"]["status"] == "fail"
     assert len(run["findings"]) == 1
     assert "# AI Quality Gate: FAIL" in run["final_report_markdown"]
+    assert "quality-gate fail" in run["final_report_markdown"]
+    assert "not an operational error" in run["final_report_markdown"]
 
 
 def test_execute_pending_run_errors_and_keeps_partial_snapshots(
@@ -485,6 +487,8 @@ def test_execute_pending_run_errors_and_keeps_partial_snapshots(
     assert run["error_message"] == "semgrep output was empty"
     assert run["ai_review_json"] == {}
     assert "# AI Quality Gate: OPERATIONAL ERROR" in run["final_report_markdown"]
+    assert "not** a quality-gate fail" in run["final_report_markdown"]
+    assert "**Gate Decision:** none" in run["final_report_markdown"]
     assert ai_called is False
 
 
