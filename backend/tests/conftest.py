@@ -38,6 +38,8 @@ def _reset_public_schema():
         connection.execute(text("CREATE SCHEMA public"))
         connection.execute(text("GRANT ALL ON SCHEMA public TO pr_quality"))
         connection.execute(text("GRANT ALL ON SCHEMA public TO public"))
+    # Drop pooled connections so recreated enum types are not stale (CI/local).
+    engine.dispose()
 
 
 @pytest.fixture
