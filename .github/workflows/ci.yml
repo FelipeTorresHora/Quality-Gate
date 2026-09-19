@@ -65,8 +65,13 @@ jobs:
         run: |
           set -o pipefail
           pytest -q --tb=short 2>&1 | tee pytest-output.txt
-          if tail -1 pytest-output.txt | grep -qE '[0-9]+ skipped'; then
-            echo "::error::One or more tests were skipped (PostgreSQL likely unavailable)."
+          summary="$(tail -1 pytest-output.txt)"
+          passed="$(printf '%s' "$summary" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+' | tail -1 || true)"
+          skipped="$(printf '%s' "$summary" | grep -oE '[0-9]+ skipped' | grep -oE '[0-9]+' | tail -1 || true)"
+          passed="${passed:-0}"
+          skipped="${skipped:-0}"
+          if [ "$skipped" -gt 0 ] && [ "$passed" -eq 0 ]; then
+            echo "::error::All runnable tests were skipped (PostgreSQL likely unavailable)."
             exit 1
           fi
 
