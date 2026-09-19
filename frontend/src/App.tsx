@@ -8,6 +8,7 @@ import RepositoryAnalysisRunsPage from "./pages/RepositoryAnalysisRunsPage";
 import RepositoryDetailPage from "./pages/RepositoryDetailPage";
 import RepositoryPullRequestsPage from "./pages/RepositoryPullRequestsPage";
 import RepositoryQualityGateConfigPage from "./pages/RepositoryQualityGateConfigPage";
+import HelpPage from "./pages/HelpPage";
 import RepositoriesPage from "./pages/RepositoriesPage";
 import type { CurrentUser } from "./types/api";
 
@@ -34,6 +35,7 @@ function AuthenticatedApp({ user }: { user: CurrentUser }) {
             Dashboard
           </NavLink>
           <NavLink to="/repositories">Repositories</NavLink>
+          <NavLink to="/help">Help</NavLink>
         </nav>
         <div className="user-chip">
           {user.avatar_url ? (
@@ -57,6 +59,7 @@ function AuthenticatedApp({ user }: { user: CurrentUser }) {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/repositories" element={<RepositoriesPage />} />
+          <Route path="/help" element={<HelpPage />} />
           <Route path="/repositories/:repositoryId" element={<RepositoryDetailPage />}>
             <Route index element={<Navigate replace to="pull-requests" />} />
             <Route path="pull-requests" element={<RepositoryPullRequestsPage />} />

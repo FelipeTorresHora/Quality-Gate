@@ -250,6 +250,44 @@ td a:hover,
   margin: 0;
 }
 
+.page-lead {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 10px 0 0;
+  max-width: 52rem;
+}
+
+.help-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.help-steps {
+  display: grid;
+  gap: 10px;
+  line-height: 1.55;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.help-env-list {
+  display: grid;
+  gap: 8px;
+  line-height: 1.55;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.help-footnote {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
 .workspace-meta {
   align-items: center;
   color: var(--muted);
