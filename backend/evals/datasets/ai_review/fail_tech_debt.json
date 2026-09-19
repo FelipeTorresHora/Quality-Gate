@@ -1,0 +1,70 @@
+{
+  "id": "fail_tech_debt",
+  "inputs": {
+    "analysis_run": {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "pr_number": 44,
+      "head_sha": "ddd444",
+      "status": "completed",
+      "decision": "fail"
+    },
+    "repository": {
+      "owner": "octo-org",
+      "name": "quality-api",
+      "full_name": "octo-org/quality-api",
+      "default_branch": "main"
+    },
+    "pull_request": {"number": 44, "title": "Add parser"},
+    "changed_files": [
+      {
+        "filename": "app/parser.py",
+        "patch": "+def parse(data):\n+    # TODO: handle unicode\n+    return data\n"
+      }
+    ],
+    "diff_snapshot": "diff --git a/app/parser.py b/app/parser.py\n+def parse(data):\n+    # TODO: handle unicode\n+    return data\n",
+    "diff_truncated": false,
+    "gate_results": {
+      "coverage": {"status": "pass", "pr_coverage": 88.0, "blocking_reasons": []},
+      "security": {"status": "pass", "blocking_reasons": []},
+      "technical_debt": {
+        "status": "fail",
+        "blocking_reasons": ["New TODO in app/parser.py"]
+      }
+    },
+    "findings": [
+      {
+        "category": "technical_debt",
+        "severity": "medium",
+        "file_path": "app/parser.py",
+        "line_number": 8,
+        "title": "New TODO introduced",
+        "description": "A new TODO was added in app/parser.py.",
+        "blocking": true
+      }
+    ],
+    "quality_gate_config": {
+      "min_total_coverage": 80,
+      "coverage_enabled": true,
+      "security_enabled": true,
+      "technical_debt_enabled": true,
+      "fail_on_new_todo": true,
+      "max_complexity": 10
+    },
+    "coverage_execution_config": {
+      "language": "python",
+      "working_directory": ".",
+      "report_format": "cobertura_xml"
+    }
+  },
+  "outputs": {
+    "decision": "fail",
+    "must_cite": ["app/parser.py", "TODO"],
+    "forbidden_substrings": [
+      "all gates passed",
+      "quality gate passed",
+      "style nit"
+    ],
+    "score_min": 0,
+    "score_max": 70
+  }
+}

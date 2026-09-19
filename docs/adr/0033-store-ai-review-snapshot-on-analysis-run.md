@@ -5,3 +5,5 @@ Accepted on 2026-06-22. The LangChain review output will be stored as an `ai_rev
 **Consequences**
 
 `final_report_markdown` remains presentation output, while `ai_review_json` remains the structured source for summary, score, risk level, and suggestions. The schema can be promoted to normalized tables later if AI review content becomes a primary reporting dimension.
+
+Generated snapshots may include an extra JSONB key `prompt_version` (for example `ai-review-v1`) for LangSmith tags and evals. Readers must ignore unknown keys; the field is not a Gate Decision.

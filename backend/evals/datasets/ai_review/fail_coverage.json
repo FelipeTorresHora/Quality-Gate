@@ -1,0 +1,73 @@
+{
+  "id": "fail_coverage",
+  "inputs": {
+    "analysis_run": {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "pr_number": 22,
+      "head_sha": "bbb222",
+      "status": "completed",
+      "decision": "fail"
+    },
+    "repository": {
+      "owner": "octo-org",
+      "name": "quality-api",
+      "full_name": "octo-org/quality-api",
+      "default_branch": "main"
+    },
+    "pull_request": {"number": 22, "title": "Skip tests"},
+    "changed_files": [
+      {"filename": "app/service.py", "patch": "+def compute():\n+    return 1\n"}
+    ],
+    "diff_snapshot": "diff --git a/app/service.py b/app/service.py\n+def compute():\n+    return 1\n",
+    "diff_truncated": false,
+    "gate_results": {
+      "coverage": {
+        "status": "fail",
+        "pr_coverage": 62.0,
+        "base_coverage": 88.0,
+        "coverage_drop": 26.0,
+        "changed_files_coverage": 40.0,
+        "changed_source_files": ["app/service.py"],
+        "blocking_reasons": [
+          "Pull Request coverage 62% is below the configured minimum 80%."
+        ],
+        "warnings": []
+      },
+      "security": {"status": "pass", "blocking_reasons": []},
+      "technical_debt": {"status": "pass", "blocking_reasons": []}
+    },
+    "findings": [
+      {
+        "category": "coverage",
+        "severity": "high",
+        "file_path": "app/service.py",
+        "line_number": null,
+        "title": "Total coverage is below policy",
+        "description": "Pull Request coverage 62% is below the configured minimum 80%.",
+        "blocking": true
+      }
+    ],
+    "quality_gate_config": {
+      "min_total_coverage": 80,
+      "coverage_enabled": true,
+      "security_enabled": true,
+      "technical_debt_enabled": true
+    },
+    "coverage_execution_config": {
+      "language": "python",
+      "working_directory": ".",
+      "report_format": "cobertura_xml"
+    }
+  },
+  "outputs": {
+    "decision": "fail",
+    "must_cite": ["62", "Total coverage is below policy"],
+    "forbidden_substrings": [
+      "all gates passed",
+      "quality gate passed",
+      "github_pat_"
+    ],
+    "score_min": 0,
+    "score_max": 70
+  }
+}

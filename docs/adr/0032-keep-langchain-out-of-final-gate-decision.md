@@ -5,3 +5,5 @@ Accepted on 2026-06-21. The LangChain review step will produce an AI Review Snap
 **Consequences**
 
 The product can use AI to make results easier to understand without allowing the model to approve a Pull Request that failed a configured policy. Code and API names should avoid "AI decision" or "LangChain decision" for this output.
+
+LangGraph orchestrates the review (`load_evidence` → `retrieve` → `draft` → `validate` → `emit`) but still must not write `AnalysisRun.decision`. Gate Decision stays in `analysis_execution_service` from completed gate statuses.

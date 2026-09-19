@@ -1,0 +1,65 @@
+{
+  "id": "fail_security",
+  "inputs": {
+    "analysis_run": {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "pr_number": 33,
+      "head_sha": "ccc333",
+      "status": "completed",
+      "decision": "fail"
+    },
+    "repository": {
+      "owner": "octo-org",
+      "name": "quality-api",
+      "full_name": "octo-org/quality-api",
+      "default_branch": "main"
+    },
+    "pull_request": {"number": 33, "title": "Add auth helper"},
+    "changed_files": [
+      {
+        "filename": "app/auth.py",
+        "patch": "+def login():\n+    eval(user_input)\n"
+      }
+    ],
+    "diff_snapshot": "diff --git a/app/auth.py b/app/auth.py\n+def login():\n+    eval(user_input)\n",
+    "diff_truncated": false,
+    "gate_results": {
+      "coverage": {"status": "pass", "pr_coverage": 90.0, "blocking_reasons": []},
+      "security": {
+        "status": "fail",
+        "blocking_reasons": ["High severity security finding in app/auth.py"]
+      },
+      "technical_debt": {"status": "pass", "blocking_reasons": []}
+    },
+    "findings": [
+      {
+        "category": "security",
+        "severity": "high",
+        "file_path": "app/auth.py",
+        "line_number": 12,
+        "title": "Dangerous eval of user input",
+        "description": "eval() is used on untrusted input.",
+        "blocking": true
+      }
+    ],
+    "quality_gate_config": {
+      "min_total_coverage": 80,
+      "coverage_enabled": true,
+      "security_enabled": true,
+      "technical_debt_enabled": true,
+      "security_fail_on": ["high", "critical"]
+    },
+    "coverage_execution_config": {
+      "language": "python",
+      "working_directory": ".",
+      "report_format": "cobertura_xml"
+    }
+  },
+  "outputs": {
+    "decision": "fail",
+    "must_cite": ["app/auth.py", "Dangerous eval of user input"],
+    "forbidden_substrings": ["all gates passed", "quality gate passed"],
+    "score_min": 0,
+    "score_max": 70
+  }
+}

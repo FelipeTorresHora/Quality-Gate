@@ -1,42 +1,41 @@
-import json
-
 from app.core.config import get_settings
 from app.models.analysis_run import AnalysisRun
-from app.services.agent.prompts import SYSTEM_PROMPT, build_ai_review_input
-from app.services.agent.schemas import AIReviewError, AIReviewGenerated, AIReviewSkipped
+from app.services.agent.prompts import PROMPT_VERSION, build_ai_review_input
+from app.services.agent.schemas import AIReviewError, AIReviewSkipped
+from app.services.agent.tracing import build_invocation_config, configure_langsmith_from_settings
 
 
 def generate_ai_review_snapshot(*, analysis_run: AnalysisRun) -> dict:
     settings = get_settings()
+    configure_langsmith_from_settings(settings)
     if not settings.openai_api_key:
         return AIReviewSkipped().model_dump(mode="json")
 
     try:
-        from langchain_openai import ChatOpenAI
+        from app.services.agent.graph import compiled_review_graph
 
-        review_input = build_ai_review_input(analysis_run)
-        llm = ChatOpenAI(
+        evidence = build_ai_review_input(analysis_run)
+        config = build_invocation_config(
+            analysis_run=analysis_run,
+            evidence=evidence,
             model=settings.openai_model,
-            api_key=settings.openai_api_key,
-            temperature=0,
+            prompt_version=PROMPT_VERSION,
         )
-        structured_llm = llm.with_structured_output(AIReviewGenerated)
-        result = structured_llm.invoke(
-            [
-                ("system", SYSTEM_PROMPT),
-                (
-                    "human",
-                    "Review this persisted quality gate evidence:\n"
-                    f"{json.dumps(review_input, ensure_ascii=False, default=str)}",
-                ),
-            ]
+        result = compiled_review_graph().invoke(
+            {
+                "analysis_run": analysis_run,
+                "model": settings.openai_model,
+                "prompt_version": PROMPT_VERSION,
+            },
+            config=config,
         )
-        if isinstance(result, AIReviewGenerated):
-            snapshot = result
-        else:
-            snapshot = AIReviewGenerated.model_validate(result)
-        data = snapshot.model_dump(mode="json")
-        data["model"] = settings.openai_model
-        return data
+        snapshot = result.get("final_snapshot")
+        if isinstance(snapshot, dict) and snapshot.get("status") in {
+            "generated",
+            "skipped",
+            "error",
+        }:
+            return snapshot
+        return AIReviewError().model_dump(mode="json")
     except Exception:
         return AIReviewError().model_dump(mode="json")
