@@ -2,6 +2,7 @@ from app.models.analysis_run import AnalysisRun
 from app.services.evidence_redaction_service import redact_json_like
 
 MAX_AI_DIFF_CHARS = 60000
+PROMPT_VERSION = "ai-review-v1"
 
 SYSTEM_PROMPT = """You are reviewing a Pull Request quality gate result.
 

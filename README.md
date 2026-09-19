@@ -167,7 +167,10 @@ OPENAI_MODEL=gpt-4.1-mini
 ```
 
 Without a key, deterministic gates still run and the AI review is recorded as
-skipped. LangSmith tracing is optional.
+skipped. LangSmith tracing is optional: set `LANGSMITH_TRACING=true` and
+`LANGSMITH_API_KEY` so the backend and worker tag graph runs with
+`analysis_run_id`. Golden evaluators live in `backend/evals/` and do not
+require LangSmith for the code checks.
 
 ## Main API
 

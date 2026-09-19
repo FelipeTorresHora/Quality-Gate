@@ -1,0 +1,59 @@
+{
+  "id": "diff_truncated",
+  "inputs": {
+    "analysis_run": {
+      "id": "00000000-0000-0000-0000-000000000006",
+      "pr_number": 66,
+      "head_sha": "fff666",
+      "status": "completed",
+      "decision": "pass"
+    },
+    "repository": {
+      "owner": "octo-org",
+      "name": "quality-api",
+      "full_name": "octo-org/quality-api",
+      "default_branch": "main"
+    },
+    "pull_request": {"number": 66, "title": "Large generated update"},
+    "changed_files": [
+      {
+        "filename": "app/generated.py",
+        "patch": "+# truncated hunk\n"
+      }
+    ],
+    "diff_snapshot": "diff --git a/app/generated.py b/app/generated.py\n+# truncated hunk\n",
+    "diff_truncated": true,
+    "gate_results": {
+      "coverage": {
+        "status": "pass",
+        "pr_coverage": 90.0,
+        "changed_source_files": ["app/generated.py"],
+        "blocking_reasons": []
+      },
+      "security": {"status": "pass", "blocking_reasons": []},
+      "technical_debt": {"status": "pass", "blocking_reasons": []}
+    },
+    "findings": [],
+    "quality_gate_config": {
+      "min_total_coverage": 80,
+      "coverage_enabled": true,
+      "security_enabled": true,
+      "technical_debt_enabled": true
+    },
+    "coverage_execution_config": {
+      "language": "python",
+      "working_directory": ".",
+      "report_format": "cobertura_xml"
+    }
+  },
+  "outputs": {
+    "decision": "pass",
+    "must_cite": [],
+    "forbidden_substrings": [
+      "quality gate failed",
+      "untruncated_secret_file.py"
+    ],
+    "score_min": 60,
+    "score_max": 100
+  }
+}

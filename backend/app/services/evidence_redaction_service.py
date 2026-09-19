@@ -5,7 +5,7 @@ from typing import Any
 
 REDACTION_MARKER = "***REDACTED***"
 
-_SECRET_PATTERNS = [
+SECRET_PATTERNS = [
     re.compile(r"x-access-token:[^@\s]+@"),
     re.compile(r"\bghs_[A-Za-z0-9]{20,}\b"),
     re.compile(r"\bgho_[A-Za-z0-9]{20,}\b"),
@@ -25,12 +25,16 @@ _SECRET_PATTERNS = [
 
 def redact_text(text: str) -> str:
     redacted = text
-    for pattern in _SECRET_PATTERNS:
+    for pattern in SECRET_PATTERNS:
         if pattern.groups >= 2:
             redacted = pattern.sub(rf"\1{REDACTION_MARKER}", redacted)
         else:
             redacted = pattern.sub(REDACTION_MARKER, redacted)
     return redacted
+
+
+def text_contains_secrets(text: str) -> bool:
+    return any(pattern.search(text) for pattern in SECRET_PATTERNS)
 
 
 def redact_json_like(value: Any) -> Any:

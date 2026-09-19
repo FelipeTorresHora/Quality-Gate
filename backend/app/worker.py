@@ -2,10 +2,13 @@ import logging
 import time
 from uuid import UUID
 
+from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.services import analysis_execution_service, analysis_queue
+from app.services.agent.tracing import configure_langsmith_from_settings
 
 log = logging.getLogger("analysis-worker")
+configure_langsmith_from_settings(get_settings())
 
 
 def process_next_job() -> UUID | None:

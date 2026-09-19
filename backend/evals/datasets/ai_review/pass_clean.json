@@ -1,0 +1,62 @@
+{
+  "id": "pass_clean",
+  "inputs": {
+    "analysis_run": {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "pr_number": 11,
+      "head_sha": "aaa111",
+      "status": "completed",
+      "decision": "pass"
+    },
+    "repository": {
+      "owner": "octo-org",
+      "name": "quality-api",
+      "full_name": "octo-org/quality-api",
+      "default_branch": "main"
+    },
+    "pull_request": {"number": 11, "title": "Add health endpoint"},
+    "changed_files": [
+      {"filename": "app/health.py", "patch": "+def health():\n+    return {\"ok\": true}\n"}
+    ],
+    "diff_snapshot": "diff --git a/app/health.py b/app/health.py\n+def health():\n+    return {\"ok\": true}\n",
+    "diff_truncated": false,
+    "gate_results": {
+      "coverage": {
+        "status": "pass",
+        "pr_coverage": 92.0,
+        "base_coverage": 91.0,
+        "coverage_drop": -1.0,
+        "changed_files_coverage": 100.0,
+        "changed_source_files": ["app/health.py"],
+        "blocking_reasons": [],
+        "warnings": []
+      },
+      "security": {"status": "pass", "blocking_reasons": []},
+      "technical_debt": {"status": "pass", "blocking_reasons": []}
+    },
+    "findings": [],
+    "quality_gate_config": {
+      "min_total_coverage": 80,
+      "coverage_enabled": true,
+      "security_enabled": true,
+      "technical_debt_enabled": true
+    },
+    "coverage_execution_config": {
+      "language": "python",
+      "working_directory": ".",
+      "report_format": "cobertura_xml"
+    }
+  },
+  "outputs": {
+    "decision": "pass",
+    "must_cite": [],
+    "forbidden_substrings": [
+      "quality gate failed",
+      "all gates failed",
+      "github_pat_"
+    ],
+    "score_min": 60,
+    "score_max": 100,
+    "risk_level_forbidden": ["high"]
+  }
+}
