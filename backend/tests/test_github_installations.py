@@ -56,6 +56,11 @@ def test_sync_installation_creates_repository_and_user_access(
         == 1
     )
     assert db_session.query(UserRepositoryAccess).one().is_admin is True
+    repository = db_session.query(Repository).filter_by(
+        full_name="octo-org/quality-api"
+    ).one()
+    assert repository.quality_gate_config.comment_on_github is True
+    assert repository.quality_gate_config.publish_github_status is True
 
 
 def test_install_url_uses_configured_github_app_slug(monkeypatch, client):

@@ -68,6 +68,7 @@ class GitHubPublicationStatusResult(BaseModel):
     published: bool
     target_sha: str | None = None
     state: str | None = None
+    target_url: str | None = None
     skipped_reason: str | None = None
 
 

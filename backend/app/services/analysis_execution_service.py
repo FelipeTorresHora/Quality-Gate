@@ -15,8 +15,13 @@ from app.services.analysis_evidence_workspace import GateExecutionEvidenceWorksp
 from app.services.agent import quality_agent
 from app.services.gates import coverage_gate, security_gate, technical_debt_gate
 from app.services.gates.types import GateFinding, GateResult
-from app.services import report_service, runtime_cache_service
-from app.services import github_app_auth_service, github_installation_service
+from app.services import (
+    github_app_auth_service,
+    github_installation_service,
+    github_publication_service,
+    report_service,
+    runtime_cache_service,
+)
 
 
 STALE_RUNNING_AFTER = timedelta(minutes=30)
@@ -63,14 +68,17 @@ def execute_analysis_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     run.finished_at = None
     db.execute(delete(AnalysisFinding).where(AnalysisFinding.analysis_run_id == run.id))
     db.commit()
+    github_publication_service.try_publish_pending_commit_status(db, run.id)
 
     try:
-        return _run_pipeline(db, run, repository_token)
+        finished = _run_pipeline(db, run, repository_token)
     except AppError:
         raise
     except Exception as exc:
         db.rollback()
-        return _finish_with_error(db, run, f"Unexpected analysis failure: {exc}")
+        finished = _finish_with_error(db, run, f"Unexpected analysis failure: {exc}")
+    github_publication_service.try_publish_analysis_run_to_github(db, finished.id)
+    return finished
 
 
 def _run_pipeline(

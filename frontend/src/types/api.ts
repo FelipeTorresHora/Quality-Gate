@@ -195,11 +195,12 @@ export type GitHubPublicationResult = {
     html_url: string | null;
     skipped_reason: string | null;
   };
-  commit_status: {
+    commit_status: {
     enabled: boolean;
     published: boolean;
     target_sha: string | null;
     state: string | null;
+    target_url: string | null;
     skipped_reason: string | null;
   };
 };

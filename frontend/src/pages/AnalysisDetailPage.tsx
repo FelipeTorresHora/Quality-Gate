@@ -133,7 +133,7 @@ export default function AnalysisDetailPage() {
               onClick={handlePublish}
               type="button"
             >
-              {publishing ? "Publishing" : "Publish to GitHub"}
+              {publishing ? "Republishing" : "Republish to GitHub"}
             </button>
           )}
           <Link className="button secondary" to={`/repositories/${run.repository_id}`}>
@@ -218,9 +218,16 @@ export default function AnalysisDetailPage() {
           pass/fail quality decision.
         </div>
       )}
+      {canPublish && publishingEnabled && qualityConfig && (
+        <div className="info-banner">
+          Comment and commit status publish automatically when this run
+          finishes. Republish if GitHub is missing the latest report.
+        </div>
+      )}
       {canPublish && !publishingEnabled && qualityConfig && (
         <div className="info-banner">
-          GitHub publication is disabled for this repository.
+          GitHub publication is disabled for this repository. Enable it on the
+          quality gate policy page, or leave the dashboard as the only surface.
         </div>
       )}
       {retryError ? <ErrorMessage error={retryError} /> : null}
@@ -429,7 +436,21 @@ function PublicationResultPanel({ result }: { result: GitHubPublicationResult })
           skippedReason={result.commit_status.skipped_reason}
           value={
             result.commit_status.state ? (
-              <StatusBadge value={result.commit_status.state} />
+              <>
+                <StatusBadge value={result.commit_status.state} />
+                {result.commit_status.target_url ? (
+                  <>
+                    {" "}
+                    <a
+                      href={result.commit_status.target_url}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Analysis Run
+                    </a>
+                  </>
+                ) : null}
+              </>
             ) : null
           }
         />
