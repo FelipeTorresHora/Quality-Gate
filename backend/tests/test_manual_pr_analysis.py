@@ -89,6 +89,8 @@ def test_manual_analyze_uses_coverage_working_directory_for_nested_project(
     quality_config.min_changed_files_coverage = 0
     quality_config.security_enabled = False
     quality_config.technical_debt_enabled = False
+    quality_config.comment_on_github = False
+    quality_config.publish_github_status = False
     db_session.commit()
 
     monkeypatch.setattr(

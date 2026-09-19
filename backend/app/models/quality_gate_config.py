@@ -35,10 +35,10 @@ class QualityGateConfig(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Boolean, nullable=False, default=True
     )
     comment_on_github: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
+        Boolean, nullable=False, default=True
     )
     publish_github_status: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
+        Boolean, nullable=False, default=True
     )
 
     repository: Mapped["Repository"] = relationship(back_populates="quality_gate_config")

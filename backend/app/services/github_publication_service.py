@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 
 from sqlalchemy import select
@@ -16,6 +17,13 @@ from app.schemas.analysis import (
 from app.services import github_app_auth_service, github_installation_service
 from app.services.github_service import GitHubClient
 from app.services.report_service import build_github_comment_body, github_comment_marker
+
+log = logging.getLogger(__name__)
+
+
+def analysis_run_target_url(analysis_run_id: UUID) -> str:
+    origin = get_settings().frontend_origin.rstrip("/")
+    return f"{origin}/analysis-runs/{analysis_run_id}"
 
 
 def publish_analysis_run_to_github(
@@ -45,17 +53,7 @@ def publish_analysis_run_to_github(
             ),
         )
 
-    installation_link = (
-        github_installation_service.get_active_installation_for_repository(
-            db,
-            run.repository_id,
-        )
-    )
-    client = GitHubClient(
-        github_app_auth_service.generate_installation_token(
-            installation_link.installation.installation_id
-        )
-    )
+    client = _client_for_run(db, run)
 
     comment_result = (
         _publish_comment(client, run)
@@ -83,6 +81,48 @@ def publish_analysis_run_to_github(
     )
 
 
+def publish_pending_commit_status(
+    db: Session, analysis_run_id: UUID
+) -> GitHubPublicationStatusResult:
+    run = _get_run(db, analysis_run_id)
+    config = run.repository.quality_gate_config
+    if not config.publish_github_status:
+        return GitHubPublicationStatusResult(
+            enabled=False,
+            published=False,
+            skipped_reason="status_disabled",
+        )
+    if run.status != AnalysisRunStatus.RUNNING:
+        return GitHubPublicationStatusResult(
+            enabled=True,
+            published=False,
+            skipped_reason="run_not_running",
+        )
+
+    client = _client_for_run(db, run)
+    return _publish_commit_status(client, run)
+
+
+def try_publish_pending_commit_status(db: Session, analysis_run_id: UUID) -> None:
+    try:
+        publish_pending_commit_status(db, analysis_run_id)
+    except Exception:
+        log.exception(
+            "GitHub pending status publication failed for analysis run %s",
+            analysis_run_id,
+        )
+
+
+def try_publish_analysis_run_to_github(db: Session, analysis_run_id: UUID) -> None:
+    try:
+        publish_analysis_run_to_github(db, analysis_run_id)
+    except Exception:
+        log.exception(
+            "GitHub publication failed for analysis run %s",
+            analysis_run_id,
+        )
+
+
 def _get_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     run = db.scalar(
         select(AnalysisRun)
@@ -97,6 +137,20 @@ def _get_run(db: Session, analysis_run_id: UUID) -> AnalysisRun:
     if run is None:
         raise AppError(404, "analysis_run_not_found", "Analysis run was not found.")
     return run
+
+
+def _client_for_run(db: Session, run: AnalysisRun) -> GitHubClient:
+    installation_link = (
+        github_installation_service.get_active_installation_for_repository(
+            db,
+            run.repository_id,
+        )
+    )
+    return GitHubClient(
+        github_app_auth_service.generate_installation_token(
+            installation_link.installation.installation_id
+        )
+    )
 
 
 def _publish_comment(
@@ -136,6 +190,7 @@ def _publish_commit_status(
     client: GitHubClient, run: AnalysisRun
 ) -> GitHubPublicationStatusResult:
     state, description = _status_state_and_description(run)
+    target_url = analysis_run_target_url(run.id)
     client.create_commit_status(
         run.repository.owner,
         run.repository.name,
@@ -143,17 +198,21 @@ def _publish_commit_status(
         state,
         get_settings().github_status_context,
         description,
+        target_url,
     )
     return GitHubPublicationStatusResult(
         enabled=True,
         published=True,
         target_sha=run.head_sha,
         state=state,
+        target_url=target_url,
         skipped_reason=None,
     )
 
 
 def _status_state_and_description(run: AnalysisRun) -> tuple[str, str]:
+    if run.status == AnalysisRunStatus.RUNNING:
+        return "pending", "Quality gate running."
     if run.status == AnalysisRunStatus.ERROR:
         return "error", "Quality gate could not complete."
     if run.decision == GateDecision.PASS:

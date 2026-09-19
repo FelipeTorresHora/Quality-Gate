@@ -609,13 +609,8 @@ select:focus {
   padding: 12px 14px;
 }
 
-.info-banner,
-.alert-neutral {
-  background: var(--neutral-soft);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  padding: 12px 14px;
+.info-banner p {
+  margin: 0 0 12px;
 }
 
 .warn-banner,
