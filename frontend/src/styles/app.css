@@ -258,34 +258,104 @@ td a:hover,
   max-width: 52rem;
 }
 
+.help-overview {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.help-step-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+}
+
+.help-step-card strong {
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-size: 18px;
+}
+
+.help-step-card p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.help-step-num {
+  align-items: center;
+  background: var(--accent-soft);
+  border-radius: 999px;
+  color: var(--accent);
+  display: inline-flex;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
 .help-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
 }
 
-.help-steps {
+.help-checklist {
   display: grid;
-  gap: 10px;
-  line-height: 1.55;
-  margin: 0;
-  padding-left: 22px;
-}
-
-.help-env-list {
-  display: grid;
-  gap: 8px;
-  line-height: 1.55;
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.help-footnote {
+.help-checklist li {
+  border-bottom: 1px solid var(--border-soft);
+  line-height: 1.55;
+  padding: 14px 16px;
+}
+
+.help-checklist li:last-child {
+  border-bottom: 0;
+}
+
+.help-callout {
+  background: var(--neutral-soft);
+  border-top: 1px solid var(--border-soft);
   color: var(--muted);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.55;
   margin: 0;
+  padding: 14px 16px;
+}
+
+.help-status-preview {
+  align-items: center;
+  border-bottom: 1px solid var(--border-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.help-status-label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.help-status-arrow {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.help-panel .panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-start;
 }
 
 .workspace-meta {
@@ -1171,7 +1241,8 @@ select:focus {
   .metrics-grid.six,
   .metrics-grid.four,
   .pillar-grid,
-  .insight-grid {
+  .insight-grid,
+  .help-overview {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1189,6 +1260,7 @@ select:focus {
   .json-grid,
   .pillar-grid,
   .insight-grid,
+  .help-overview,
   .context-summary,
   .form-grid,
   .settings-form {
