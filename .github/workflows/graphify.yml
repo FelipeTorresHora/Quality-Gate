@@ -1,0 +1,90 @@
+name: Graphify
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "docker/**"
+      - "docs/**"
+      - ".graphifyignore"
+      - ".github/workflows/graphify.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "docker/**"
+      - "docs/**"
+      - ".graphifyignore"
+      - ".github/workflows/graphify.yml"
+
+concurrency:
+  group: graphify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  graph:
+    name: Knowledge graph (AST)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install graphify
+        run: uv tool install graphifyy
+
+      - name: Rebuild code graph
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          cp graphify-out/graph.json /tmp/graphify-graph-committed.json
+          cp graphify-out/manifest.json /tmp/graphify-manifest-committed.json
+          graphify extract . --code-only --no-viz
+          graphify cluster-only . --no-label --no-viz
+
+      - name: Assert graphify-out matches repository
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          def norm_graph(path: Path) -> str:
+              data = json.loads(path.read_text(encoding="utf-8"))
+              data.pop("built_at_commit", None)
+              return json.dumps(data, sort_keys=True)
+
+          committed_graph = norm_graph(Path("/tmp/graphify-graph-committed.json"))
+          rebuilt_graph = norm_graph(Path("graphify-out/graph.json"))
+          if committed_graph != rebuilt_graph:
+              raise SystemExit(
+                  "graphify-out/graph.json is stale (ignoring built_at_commit). "
+                  "Run: graphify extract . --code-only && graphify cluster-only . --no-label"
+              )
+
+          def norm_manifest(path: Path) -> str:
+              data = json.loads(path.read_text(encoding="utf-8"))
+              norm: dict[str, object] = {}
+              for key, entry in sorted(data.items()):
+                  if isinstance(entry, dict):
+                      norm[key] = {
+                          k: entry[k]
+                          for k in ("ast_hash", "semantic_hash")
+                          if k in entry
+                      }
+                  else:
+                      norm[key] = entry
+              return json.dumps(norm, sort_keys=True)
+
+          if norm_manifest(Path("/tmp/graphify-manifest-committed.json")) != norm_manifest(
+              Path("graphify-out/manifest.json")
+          ):
+              raise SystemExit(
+                  "graphify-out/manifest.json is stale (hash entries). "
+                  "Run: graphify extract . --code-only && graphify cluster-only . --no-label"
+              )
+          print("graphify-out graph + manifest match AST rebuild")
+          PY

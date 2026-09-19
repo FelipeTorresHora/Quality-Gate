@@ -18,3 +18,9 @@ frontend/vite.config.d.ts
 
 .vercel
 .env*
+
+# Graphify (local-only artifacts; see docs/graphify.md)
+graphify-out/cost.json
+graphify-out/cache/
+graphify-out/.graphify_*
+graphify-out/20*/

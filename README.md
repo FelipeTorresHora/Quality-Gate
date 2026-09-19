@@ -20,6 +20,13 @@ Mock Analysis Runs are no longer supported. Analysis Runs are created only from
 GitHub App Pull Request events or from the Analyze action on a live GitHub Pull
 Request.
 
+## Graphify (code graph and advisory PR reviews)
+
+This repo includes an in-tree [Graphify](https://github.com/Graphify-Labs/graphify)
+knowledge graph (`graphify-out/`) and assistant skill wiring. Hosted PR reviews
+use the Graphify Labs GitHub App via [Graphify Cloud](https://app.graphify.com);
+they are advisory and separate from QG gate decisions. See [docs/graphify.md](docs/graphify.md).
+
 ## Run Locally
 
 Create the local environment file:
