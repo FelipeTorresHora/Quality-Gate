@@ -334,7 +334,7 @@ def test_publish_commit_status_maps_decision(
 
     from app.services.github_service import GitHubClient
 
-    def fake_status(self, owner, name, sha, state, context, description):
+    def fake_status(self, owner, name, sha, state, context, description, target_url=None):
         published.update(
             {
                 "owner": owner,
@@ -343,6 +343,7 @@ def test_publish_commit_status_maps_decision(
                 "state": state,
                 "context": context,
                 "description": description,
+                "target_url": target_url,
             }
         )
         return {"state": state}
@@ -363,8 +364,11 @@ def test_publish_commit_status_maps_decision(
     assert published["state"] == "failure"
     assert published["context"] == "ai-quality-gate"
     assert published["description"] == "Quality gate failed."
+    assert published["target_url"] == f"http://localhost:5173/analysis-runs/{run_id}"
     assert response.json()["commit_status"]["published"] is True
     assert response.json()["commit_status"]["state"] == "failure"
+    assert response.json()["commit_status"]["target_url"] == published["target_url"]
+    assert "/check-runs" not in published["target_url"]
 
 
 def test_publish_installation_token_failure_returns_stable_error(
@@ -396,6 +400,49 @@ def test_publish_installation_token_failure_returns_stable_error(
 
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "github_installation_token_failed"
+
+
+def test_create_commit_status_uses_statuses_api_not_checks(
+    monkeypatch,
+):
+    from app.services.github_service import GitHubClient
+
+    captured = {}
+
+    class FakeResponse:
+        status_code = 201
+        is_error = False
+        headers = {}
+
+        def json(self):
+            return {"state": "pending"}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["url"] = url
+        captured["json"] = json
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.github_service.httpx.post", fake_post)
+    GitHubClient("installation-token").create_commit_status(
+        "horinha04",
+        "meu-projeto",
+        "abc123",
+        "pending",
+        "ai-quality-gate",
+        "Quality gate running.",
+        "http://localhost:5173/analysis-runs/run-id",
+    )
+
+    assert captured["url"].endswith(
+        "/repos/horinha04/meu-projeto/statuses/abc123"
+    )
+    assert "check-runs" not in captured["url"]
+    assert captured["json"] == {
+        "state": "pending",
+        "context": "ai-quality-gate",
+        "description": "Quality gate running.",
+        "target_url": "http://localhost:5173/analysis-runs/run-id",
+    }
 
 
 def _raise_installation_token_error():

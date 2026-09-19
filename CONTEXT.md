@@ -17,8 +17,8 @@ The first real GitHub integration scope where the system uses a configured token
 _Avoid_: GitHub completo, GitHub App, conexao GitHub
 
 **GitHub Publication**:
-The dashboard-owned action of publishing an Analysis Run result back to GitHub as a Pull Request comment, commit status, or both.
-_Avoid_: write-back, GitHub sync, status job
+Publishing an Analysis Run to GitHub as a Pull Request comment and/or commit status (`ai-quality-gate`). New repositories auto-publish; the dashboard Publish action remains for republish. A GitHub write failure does not change Run Status or Gate Decision.
+_Avoid_: write-back, GitHub sync, status job, required check, Checks API
 
 **Pull Request Trigger**:
 A GitHub-originated Pull Request lifecycle event that tells the dashboard to start or queue an Analysis Run for a known Repository.

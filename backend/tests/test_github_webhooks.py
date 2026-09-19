@@ -465,3 +465,90 @@ def test_webhook_enrichment_failure_creates_error_run(
 
     replay = _post_webhook(client, _pull_request_payload(head_sha="abc123")).json()
     assert replay["analysis_run_id"] == body["analysis_run_id"]
+
+
+def test_webhook_analysis_run_auto_publishes_pending_then_success(
+    client, repository, webhook_secret, monkeypatch
+):
+    from uuid import UUID
+
+    from app.db.session import SessionLocal
+    from app.models.enums import FindingCategory
+    from app.services import analysis_execution_service
+    from app.services.gates import coverage_gate, security_gate, technical_debt_gate
+    from app.services.gates.types import GateResult
+    from app.services.github_service import GitHubClient
+
+    _patch_context(monkeypatch)
+    monkeypatch.setattr(
+        "app.services.analysis_queue.enqueue",
+        lambda run_id: None,
+    )
+
+    statuses = []
+    comments = []
+
+    def fake_status(
+        self, owner, name, sha, state, context, description, target_url=None
+    ):
+        statuses.append(
+            {
+                "state": state,
+                "context": context,
+                "target_url": target_url,
+                "url_path": f"/repos/{owner}/{name}/statuses/{sha}",
+            }
+        )
+        return {"state": state}
+
+    monkeypatch.setattr(GitHubClient, "create_commit_status", fake_status)
+    monkeypatch.setattr(GitHubClient, "list_issue_comments", lambda self, *a, **k: [])
+    monkeypatch.setattr(
+        GitHubClient,
+        "create_issue_comment",
+        lambda self, owner, name, pr_number, body: comments.append(body)
+        or {"id": 1, "html_url": "https://github.com/comment/1"},
+    )
+
+    def passing(category):
+        return GateResult(
+            snapshot={"status": "pass", "blocking_reasons": []},
+            findings=[],
+            error_message=None,
+        )
+
+    monkeypatch.setattr(
+        coverage_gate,
+        "run_coverage_gate",
+        lambda **kwargs: passing(FindingCategory.COVERAGE),
+    )
+    monkeypatch.setattr(
+        security_gate,
+        "run_security_gate",
+        lambda **kwargs: passing(FindingCategory.SECURITY),
+    )
+    monkeypatch.setattr(
+        technical_debt_gate,
+        "run_technical_debt_gate",
+        lambda **kwargs: passing(FindingCategory.TECHNICAL_DEBT),
+    )
+
+    response = _post_webhook(client, _pull_request_payload(action="opened"))
+    run_id = response.json()["analysis_run_id"]
+
+    with SessionLocal() as db:
+        executed = analysis_execution_service.execute_analysis_run(db, UUID(run_id))
+
+    assert executed.status.value == "completed"
+    assert executed.decision.value == "pass"
+    assert [item["state"] for item in statuses] == ["pending", "success"]
+    assert all(item["context"] == "ai-quality-gate" for item in statuses)
+    assert all(
+        item["target_url"] == f"http://localhost:5173/analysis-runs/{run_id}"
+        for item in statuses
+    )
+    assert all("/statuses/" in item["url_path"] for item in statuses)
+    assert all("check-run" not in item["url_path"] for item in statuses)
+    assert comments
+    assert "required check" not in comments[0].lower()
+    assert "branch protection" not in comments[0].lower()

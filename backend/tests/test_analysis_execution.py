@@ -6,7 +6,75 @@ from app.core.errors import AppError
 from app.db.session import SessionLocal
 from app.models.analysis_run import AnalysisRun
 from app.models.enums import AnalysisRunStatus, AnalysisTriggerSource, FindingCategory
+from app.models.quality_gate_config import QualityGateConfig
 from app.services import analysis_execution_service
+from app.services.github_service import GitHubClient
+
+
+@pytest.fixture(autouse=True)
+def github_writes(monkeypatch):
+    calls = {"status": [], "comments": [], "comment_updates": []}
+
+    def fake_status(
+        self, owner, name, sha, state, context, description, target_url=None
+    ):
+        calls["status"].append(
+            {
+                "sha": sha,
+                "state": state,
+                "context": context,
+                "description": description,
+                "target_url": target_url,
+            }
+        )
+        return {"state": state}
+
+    def fake_list(self, owner, name, pr_number):
+        return []
+
+    def fake_create(self, owner, name, pr_number, body):
+        calls["comments"].append({"pr_number": pr_number, "body": body})
+        return {"id": 1, "html_url": "https://github.com/comment/1"}
+
+    def fake_update(self, owner, name, comment_id, body):
+        calls["comment_updates"].append({"comment_id": comment_id, "body": body})
+        return {"id": comment_id, "html_url": "https://github.com/comment/2"}
+
+    monkeypatch.setattr(GitHubClient, "create_commit_status", fake_status)
+    monkeypatch.setattr(GitHubClient, "list_issue_comments", fake_list)
+    monkeypatch.setattr(GitHubClient, "create_issue_comment", fake_create)
+    monkeypatch.setattr(GitHubClient, "update_issue_comment", fake_update)
+    return calls
+
+
+def _set_publish_flags(repository_id, *, comment, status):
+    with SessionLocal() as db:
+        config = (
+            db.query(QualityGateConfig).filter_by(repository_id=repository_id).one()
+        )
+        config.comment_on_github = comment
+        config.publish_github_status = status
+        db.commit()
+
+
+def _stub_passing_gates(monkeypatch):
+    from app.services.gates import coverage_gate, security_gate, technical_debt_gate
+
+    monkeypatch.setattr(
+        coverage_gate,
+        "run_coverage_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.COVERAGE),
+    )
+    monkeypatch.setattr(
+        security_gate,
+        "run_security_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.SECURITY),
+    )
+    monkeypatch.setattr(
+        technical_debt_gate,
+        "run_technical_debt_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.TECHNICAL_DEBT),
+    )
 
 
 def _create_run(
@@ -532,3 +600,139 @@ def test_execute_skips_disabled_gates(repository, monkeypatch):
         "reason": "security_gate_disabled",
     }
     assert run["technical_debt_result_json"]["status"] == "pass"
+
+
+def test_execute_publishes_pending_then_success_with_target_url(
+    repository, monkeypatch, github_writes
+):
+    run_id = _create_run(repository)
+    _stub_passing_gates(monkeypatch)
+
+    run = _execute(run_id)
+    expected_url = f"http://localhost:5173/analysis-runs/{run_id}"
+
+    assert run["status"] == "completed"
+    assert run["decision"] == "pass"
+    assert [item["state"] for item in github_writes["status"]] == ["pending", "success"]
+    assert github_writes["status"][0]["description"] == "Quality gate running."
+    assert github_writes["status"][1]["description"] == "Quality gate passed."
+    assert all(item["context"] == "ai-quality-gate" for item in github_writes["status"])
+    assert all(item["target_url"] == expected_url for item in github_writes["status"])
+    assert github_writes["comments"]
+    assert f"<!-- ai-quality-gate:analysis-run:{run_id} -->" in github_writes["comments"][0]["body"]
+    assert "required check" not in github_writes["comments"][0]["body"].lower()
+    assert "branch protection" not in github_writes["comments"][0]["body"].lower()
+
+
+def test_execute_publishes_failure_status_when_gate_fails(
+    repository, monkeypatch, github_writes
+):
+    run_id = _create_run(repository)
+    from app.services.gates import coverage_gate, security_gate, technical_debt_gate
+
+    monkeypatch.setattr(
+        coverage_gate,
+        "run_coverage_gate",
+        lambda **kwargs: _gate_result("fail", FindingCategory.COVERAGE),
+    )
+    monkeypatch.setattr(
+        security_gate,
+        "run_security_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.SECURITY),
+    )
+    monkeypatch.setattr(
+        technical_debt_gate,
+        "run_technical_debt_gate",
+        lambda **kwargs: _gate_result("pass", FindingCategory.TECHNICAL_DEBT),
+    )
+
+    run = _execute(run_id)
+
+    assert run["status"] == "completed"
+    assert run["decision"] == "fail"
+    assert [item["state"] for item in github_writes["status"]] == ["pending", "failure"]
+
+
+def test_execute_publishes_error_status_on_operational_failure(
+    repository, monkeypatch, github_writes
+):
+    run_id = _create_run(repository)
+    from app.services.gates import coverage_gate
+
+    monkeypatch.setattr(
+        coverage_gate,
+        "run_coverage_gate",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("scanner crashed")),
+    )
+
+    run = _execute(run_id)
+
+    assert run["status"] == "error"
+    assert run["decision"] is None
+    assert [item["state"] for item in github_writes["status"]] == ["pending", "error"]
+    assert github_writes["comments"]
+    assert "OPERATIONAL ERROR" in github_writes["comments"][0]["body"]
+
+
+def test_execute_updates_existing_github_comment(
+    repository, monkeypatch, github_writes
+):
+    run_id = _create_run(repository)
+    _stub_passing_gates(monkeypatch)
+
+    def fake_list(self, owner, name, pr_number):
+        return [
+            {
+                "id": 101,
+                "body": f"old\n<!-- ai-quality-gate:analysis-run:{run_id} -->",
+            }
+        ]
+
+    monkeypatch.setattr(GitHubClient, "list_issue_comments", fake_list)
+
+    run = _execute(run_id)
+
+    assert run["status"] == "completed"
+    assert github_writes["comments"] == []
+    assert github_writes["comment_updates"][0]["comment_id"] == 101
+    assert f"<!-- ai-quality-gate:analysis-run:{run_id} -->" in github_writes[
+        "comment_updates"
+    ][0]["body"]
+
+
+def test_github_publish_failure_does_not_change_run_status_or_decision(
+    repository, monkeypatch, github_writes
+):
+    run_id = _create_run(repository)
+    _stub_passing_gates(monkeypatch)
+
+    def boom(self, *args, **kwargs):
+        raise AppError(502, "github_request_failed", "GitHub API request failed.")
+
+    monkeypatch.setattr(GitHubClient, "create_commit_status", boom)
+    monkeypatch.setattr(GitHubClient, "create_issue_comment", boom)
+
+    run = _execute(run_id)
+
+    assert run["status"] == "completed"
+    assert run["decision"] == "pass"
+    with SessionLocal() as db:
+        persisted = db.get(AnalysisRun, UUID(run_id))
+        assert persisted.status == AnalysisRunStatus.COMPLETED
+        assert persisted.decision.value == "pass"
+
+
+def test_disabled_publication_flags_skip_github_writes(
+    repository, monkeypatch, github_writes
+):
+    run_id = _create_run(repository)
+    _set_publish_flags(repository["id"], comment=False, status=False)
+    _stub_passing_gates(monkeypatch)
+
+    run = _execute(run_id)
+
+    assert run["status"] == "completed"
+    assert run["decision"] == "pass"
+    assert github_writes["status"] == []
+    assert github_writes["comments"] == []
+    assert github_writes["comment_updates"] == []

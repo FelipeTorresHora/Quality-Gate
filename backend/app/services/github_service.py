@@ -150,15 +150,19 @@ class GitHubClient:
         state: str,
         context: str,
         description: str,
+        target_url: str | None = None,
     ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "state": state,
+            "context": context,
+            "description": description,
+        }
+        if target_url:
+            payload["target_url"] = target_url
         response = httpx.post(
             f"{self.base_url}/repos/{owner}/{name}/statuses/{sha}",
             headers=self._headers(),
-            json={
-                "state": state,
-                "context": context,
-                "description": description,
-            },
+            json=payload,
             timeout=20,
         )
         self._raise_for_response(response, owner, name)

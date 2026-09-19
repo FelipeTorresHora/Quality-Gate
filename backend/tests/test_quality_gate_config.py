@@ -1,3 +1,14 @@
+def test_new_repository_enables_github_publication_by_default(client, repository):
+    response = client.get(
+        f"/api/repositories/{repository['id']}/quality-gate-config"
+    )
+
+    assert response.status_code == 200
+    config = response.json()
+    assert config["comment_on_github"] is True
+    assert config["publish_github_status"] is True
+
+
 def test_update_quality_gate_config(client, repository, monkeypatch):
     expired = []
     monkeypatch.setattr(
