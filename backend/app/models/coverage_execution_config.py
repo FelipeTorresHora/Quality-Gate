@@ -33,6 +33,10 @@ class CoverageExecutionConfig(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         default=CoverageLanguage.PYTHON,
     )
+    language_preset_confirmed: Mapped[bool] = mapped_column(
+        nullable=False,
+        default=True,
+    )
     install_command: Mapped[str] = mapped_column(
         Text, nullable=False, default="pip install -r requirements.txt"
     )

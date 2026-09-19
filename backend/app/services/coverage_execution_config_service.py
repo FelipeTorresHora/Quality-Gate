@@ -36,6 +36,46 @@ DEFAULTS_BY_LANGUAGE = {
     },
 }
 
+_GITHUB_LANGUAGE_ALIASES = {
+    "python": CoverageLanguage.PYTHON,
+    "javascript": CoverageLanguage.JAVASCRIPT,
+    "js": CoverageLanguage.JAVASCRIPT,
+    "node": CoverageLanguage.JAVASCRIPT,
+    "nodejs": CoverageLanguage.JAVASCRIPT,
+    "typescript": CoverageLanguage.TYPESCRIPT,
+    "ts": CoverageLanguage.TYPESCRIPT,
+    "go": CoverageLanguage.GO,
+    "golang": CoverageLanguage.GO,
+}
+
+
+def map_github_language(
+    github_language: str | None,
+) -> tuple[CoverageLanguage, bool]:
+    if not github_language or not str(github_language).strip():
+        return CoverageLanguage.PYTHON, False
+    key = str(github_language).strip().lower()
+    language = _GITHUB_LANGUAGE_ALIASES.get(key)
+    if language is None:
+        return CoverageLanguage.PYTHON, False
+    return language, True
+
+
+def build_coverage_execution_config(
+    *,
+    github_language: str | None = None,
+) -> CoverageExecutionConfig:
+    language, matched = map_github_language(github_language)
+    defaults = DEFAULTS_BY_LANGUAGE[language]
+    return CoverageExecutionConfig(
+        language=language,
+        language_preset_confirmed=matched,
+        install_command=defaults["install_command"],
+        test_command=defaults["test_command"],
+        report_path=defaults["report_path"],
+        report_format=defaults["report_format"],
+    )
+
 
 def get_coverage_execution_config(
     db: Session, repository_id: UUID
@@ -70,6 +110,8 @@ def update_coverage_execution_config(
         if field == "report_format" and value is not None:
             value = CoverageReportFormat(value)
         setattr(config, field, value)
+
+    config.language_preset_confirmed = True
 
     expected_format = DEFAULTS_BY_LANGUAGE[config.language]["report_format"]
     if config.report_format != expected_format:
