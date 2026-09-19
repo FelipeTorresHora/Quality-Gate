@@ -17,7 +17,7 @@ def get_dashboard_summary(
     current_user: AuthenticatedUser = Depends(get_current_user),
 ):
     settings = get_settings()
-    cache_key = f"dashboard-summary:v1:user:{current_user.id}"
+    cache_key = f"dashboard-summary:v2:user:{current_user.id}"
     cached = runtime_cache_service.get_json(cache_key)
     if cached is not None:
         return cached

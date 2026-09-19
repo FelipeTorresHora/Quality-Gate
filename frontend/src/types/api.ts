@@ -164,6 +164,23 @@ export type DashboardBlockingCategory = {
   count: number;
 };
 
+export type DashboardOpenPullRequestAction = {
+  repository_id: string;
+  repository_full_name: string;
+  pr_number: number;
+  pr_title: string | null;
+  html_url: string | null;
+  head_sha: string;
+  analysis_run_id: string;
+  status: AnalysisRunSummary["status"];
+  decision: AnalysisRunSummary["decision"];
+  review_state: PullRequestReviewState["state"];
+  action: "fail" | "error" | "outdated" | "publication_off";
+  comment_on_github: boolean;
+  publish_github_status: boolean;
+  created_at: string;
+};
+
 export type DashboardSummary = {
   total_repositories: number;
   total_analysis_runs: number;
@@ -173,6 +190,7 @@ export type DashboardSummary = {
   recent_analysis_runs: DashboardRecentAnalysisRun[];
   finding_counts: DashboardFindingCount[];
   top_blocking_categories: DashboardBlockingCategory[];
+  open_pull_requests_needing_action: DashboardOpenPullRequestAction[];
 };
 
 export type AnalysisRunDetail = AnalysisRunSummary & {

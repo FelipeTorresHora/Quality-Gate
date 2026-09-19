@@ -13,7 +13,7 @@ import LoadingBlock from "../components/LoadingBlock";
 import RunTicker from "../components/RunTicker";
 import StatusBadge from "../components/StatusBadge";
 import { deriveAlerts, deriveInsights } from "../lib/insights";
-import type { DashboardSummary } from "../types/api";
+import type { DashboardOpenPullRequestAction, DashboardSummary } from "../types/api";
 
 const runStatuses = ["pending", "running", "completed", "error"] as const;
 const gateDecisions = ["pass", "fail"] as const;
@@ -68,6 +68,30 @@ export default function DashboardPage() {
         >
           Install the GitHub App to start analyzing Pull Requests.
         </EmptyState>
+      )}
+
+      {summary.total_repositories > 0 && (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Open Pull Requests needing action</h2>
+              <p className="panel-subtitle">
+                Fail, operational error, outdated analysis, or GitHub publication
+                turned off. Passing current reviews stay off this queue.
+              </p>
+            </div>
+          </div>
+          {summary.open_pull_requests_needing_action.length === 0 ? (
+            <EmptyState title="No open Pull Requests need action">
+              Open Pull Requests that failed the quality gate, hit an operational
+              error, or have an outdated analysis will appear here.
+            </EmptyState>
+          ) : (
+            <OpenPullRequestActionTable
+              items={summary.open_pull_requests_needing_action}
+            />
+          )}
+        </section>
       )}
 
       <RunTicker
@@ -219,4 +243,84 @@ export default function DashboardPage() {
       </section>
     </div>
   );
+}
+
+const actionCopy: Record<DashboardOpenPullRequestAction["action"], string> = {
+  fail: "fail",
+  error: "error",
+  outdated: "outdated",
+  publication_off: "publication_off"
+};
+
+function OpenPullRequestActionTable({
+  items
+}: {
+  items: DashboardOpenPullRequestAction[];
+}) {
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Repository</th>
+            <th>PR</th>
+            <th>SHA</th>
+            <th>Status</th>
+            <th>Decision</th>
+            <th>Review</th>
+            <th>Action</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr key={`${item.repository_id}-${item.pr_number}`}>
+              <td>
+                <Link to={`/repositories/${item.repository_id}`}>
+                  {item.repository_full_name}
+                </Link>
+              </td>
+              <td>
+                <div className="stacked-cell">
+                  <Link to={`/analysis-runs/${item.analysis_run_id}`}>
+                    #{item.pr_number}
+                  </Link>
+                  {item.pr_title ? <span>{item.pr_title}</span> : null}
+                </div>
+              </td>
+              <td>
+                <code className="mono-value">{shortSha(item.head_sha)}</code>
+              </td>
+              <td>
+                <StatusBadge value={item.status} />
+              </td>
+              <td>
+                <StatusBadge value={item.decision} />
+              </td>
+              <td>
+                <StatusBadge value={item.review_state} />
+              </td>
+              <td>
+                <StatusBadge value={actionCopy[item.action]} />
+              </td>
+              <td>
+                <div className="badge-row">
+                  <Link to={`/analysis-runs/${item.analysis_run_id}`}>View run</Link>
+                  {item.html_url ? (
+                    <a href={item.html_url} rel="noreferrer" target="_blank">
+                      GitHub
+                    </a>
+                  ) : null}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function shortSha(value: string) {
+  return value.length > 12 ? value.slice(0, 12) : value;
 }
