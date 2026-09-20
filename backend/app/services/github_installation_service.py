@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 import httpx
+from cryptography.fernet import InvalidToken
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
@@ -16,6 +17,7 @@ from app.models.user import User
 from app.models.user_repository_access import UserRepositoryAccess
 from app.services import (
     coverage_execution_config_service,
+    github_app_auth_service,
     runtime_cache_service,
     token_crypto_service,
 )
@@ -78,13 +80,13 @@ def sync_installation_payload(
             link.github_repo_id = repository.github_repo_id
             link.full_name = repository.full_name
 
-        if user is not None and repo_payload.get("permissions"):
+        if user is not None:
             _upsert_user_access(
                 db,
                 user,
                 repository,
                 installation,
-                repo_payload.get("permissions") or {},
+                _resolve_repository_permissions(repo_payload),
             )
 
     if replace_repositories:
@@ -114,14 +116,29 @@ def sync_user_installations(db: Session, user: User) -> None:
     if connection is None or not connection.access_token_encrypted:
         return
 
-    token = token_crypto_service.decrypt_token(connection.access_token_encrypted)
+    try:
+        token = token_crypto_service.decrypt_token(connection.access_token_encrypted)
+    except InvalidToken:
+        raise AppError(
+            503,
+            "github_connection_invalid",
+            "GitHub connection must be renewed by signing in again.",
+        )
     installations = _get_paginated_user_resource(
         token,
         "/user/installations",
         "installations",
     )
+    settings = get_settings()
+    configured_app_id = settings.github_app_id
     visible_installation_ids = set()
     for installation_payload in installations:
+        if configured_app_id is not None:
+            payload_app_id = installation_payload.get("app_id")
+            if payload_app_id is not None and str(payload_app_id) != str(
+                configured_app_id
+            ):
+                continue
         installation_id = int(installation_payload["id"])
         visible_installation_ids.add(installation_id)
         repositories_payload = _get_paginated_user_resource(
@@ -142,12 +159,16 @@ def sync_user_installations(db: Session, user: User) -> None:
             )
         )
         if installation is not None:
-            _remove_stale_user_repository_access(
-                db,
-                user,
-                installation,
-                {int(repository["id"]) for repository in repositories_payload},
-            )
+            visible_repo_ids = {
+                int(repository["id"]) for repository in repositories_payload
+            }
+            if visible_repo_ids:
+                _remove_stale_user_repository_access(
+                    db,
+                    user,
+                    installation,
+                    visible_repo_ids,
+                )
 
     _remove_stale_user_installation_access(
         db,
@@ -285,6 +306,23 @@ def _permission_name(permissions: dict) -> str | None:
     return None
 
 
+def _resolve_repository_permissions(repo_payload: dict) -> dict:
+    permissions = repo_payload.get("permissions")
+    if permissions:
+        return permissions
+    # Installation webhooks omit per-repository permissions for the sender.
+    return {"admin": True, "pull": True}
+
+
+def list_installation_repositories(installation_id: int) -> list[dict]:
+    token = github_app_auth_service.generate_installation_token(installation_id)
+    return _get_paginated_github_resource(
+        token,
+        "/installation/repositories",
+        "repositories",
+    )
+
+
 def _remove_missing_installation_repositories(
     db: Session,
     installation: GitHubAppInstallation,
@@ -352,6 +390,14 @@ def _remove_stale_user_repository_access(
 
 
 def _get_paginated_user_resource(
+    token: str,
+    path: str,
+    collection_key: str,
+) -> list[dict]:
+    return _get_paginated_github_resource(token, path, collection_key)
+
+
+def _get_paginated_github_resource(
     token: str,
     path: str,
     collection_key: str,

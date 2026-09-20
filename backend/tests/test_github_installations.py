@@ -7,6 +7,41 @@ from app.models.user_repository_access import UserRepositoryAccess
 from app.services import github_installation_service
 
 
+def test_sync_installation_creates_user_access_without_webhook_permissions(
+    reset_database,
+    db_session,
+):
+    user = User(github_user_id=1, github_login="octocat")
+    db_session.add(user)
+    db_session.commit()
+
+    github_installation_service.sync_installation_payload(
+        db_session,
+        user=user,
+        installation_payload={
+            "id": 100,
+            "account": {
+                "id": 200,
+                "login": "octo-org",
+                "type": "Organization",
+            },
+        },
+        repositories_payload=[
+            {
+                "id": 456,
+                "name": "quality-api",
+                "full_name": "octo-org/quality-api",
+                "owner": {"login": "octo-org"},
+                "default_branch": "main",
+            }
+        ],
+    )
+
+    access = db_session.query(UserRepositoryAccess).one()
+    assert access.is_admin is True
+    assert access.permission == "admin"
+
+
 def test_sync_installation_creates_repository_and_user_access(
     reset_database,
     db_session,

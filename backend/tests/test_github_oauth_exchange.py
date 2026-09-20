@@ -51,6 +51,11 @@ def test_exchange_code_for_user_success(monkeypatch, reset_database, db_session)
 
     monkeypatch.setattr(github_oauth_service.httpx, "post", fake_post)
     monkeypatch.setattr(github_oauth_service.httpx, "get", fake_get)
+    monkeypatch.setattr(
+        github_oauth_service.github_installation_service,
+        "sync_user_installations",
+        lambda db, user: None,
+    )
     key = token_crypto_service.generate_key()
     monkeypatch.setenv("TOKEN_ENCRYPTION_KEY", key)
     token_crypto_service.get_settings.cache_clear()
