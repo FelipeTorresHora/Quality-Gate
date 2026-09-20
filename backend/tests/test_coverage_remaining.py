@@ -751,6 +751,10 @@ def test_webhook_installation_branches(reset_database, db_session, monkeypatch):
         ),
     )
     monkeypatch.setattr(
+        "app.services.github_webhook_service.github_installation_service.list_installation_repositories",
+        lambda installation_id: [],
+    )
+    monkeypatch.setattr(
         "app.services.github_webhook_service.github_installation_service.sync_installation_payload",
         lambda db, **kwargs: calls["sync"].append(kwargs.get("replace_repositories")),
     )

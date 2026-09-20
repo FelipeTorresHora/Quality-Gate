@@ -142,11 +142,18 @@ def _process_installation_event(
             )
             return
         if action in {"created", "new_permissions_accepted", "unsuspend"}:
+            repositories_payload = payload.get("repositories") or []
+            if not repositories_payload:
+                repositories_payload = (
+                    github_installation_service.list_installation_repositories(
+                        int(installation_id)
+                    )
+                )
             github_installation_service.sync_installation_payload(
                 db,
                 user=_find_webhook_user(db, payload),
                 installation_payload=installation_payload,
-                repositories_payload=payload.get("repositories") or [],
+                repositories_payload=repositories_payload,
                 replace_repositories=action == "created",
             )
         return

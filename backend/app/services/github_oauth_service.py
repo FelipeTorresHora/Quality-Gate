@@ -13,7 +13,7 @@ from app.core.errors import AppError
 from app.models.github_connection import GitHubConnection
 from app.models.oauth_state import OAuthState
 from app.models.user import User
-from app.services import token_crypto_service
+from app.services import github_installation_service, token_crypto_service
 
 
 @dataclass
@@ -174,4 +174,5 @@ def upsert_user_from_github(
     )
     db.commit()
     db.refresh(user)
+    github_installation_service.sync_user_installations(db, user)
     return user

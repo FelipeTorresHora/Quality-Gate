@@ -51,7 +51,7 @@ export default function RepositoriesPage() {
 
       {loading ? (
         <LoadingBlock label="Loading repositories" />
-      ) : repositories.length === 0 ? (
+      ) : error ? null : repositories.length === 0 ? (
         <EmptyState
           action={
             installUrl ? (

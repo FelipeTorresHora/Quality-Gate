@@ -16,6 +16,7 @@ from app.schemas.repository import RepositoryRead
 from app.services import (
     analysis_queue,
     analysis_service,
+    github_installation_service,
     github_service,
     repository_service,
     runtime_cache_service,
@@ -37,6 +38,7 @@ def list_repositories(
     if cached is not None:
         return cached
 
+    github_installation_service.sync_user_installations(db, current_user)
     repositories = repository_service.list_repositories_for_user(db, current_user)
     payload = [
         RepositoryRead.model_validate(repository).model_dump(mode="json")
