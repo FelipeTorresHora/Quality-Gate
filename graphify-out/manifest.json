@@ -1126,11 +1126,5 @@
     "seen": 1789865096.927579,
     "ast_hash": "2450046d2b1562fe1a64487816d517b1",
     "semantic_hash": "2450046d2b1562fe1a64487816d517b1"
-  },
-  "frontend/test-results/.last-run.json": {
-    "mtime": 1789865026.6051052,
-    "seen": 1789865096.9275746,
-    "ast_hash": "f196824657d8858bc7fa44eecbba38b1",
-    "semantic_hash": "f196824657d8858bc7fa44eecbba38b1"
   }
 }
