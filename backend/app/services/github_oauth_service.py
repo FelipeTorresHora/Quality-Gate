@@ -47,6 +47,17 @@ def create_oauth_state(
     return CreatedOAuthState(state=state, verifier=verifier)
 
 
+def _oauth_state_is_valid(db: Session, state: str) -> bool:
+    now = datetime.now(UTC)
+    state_id = db.scalar(
+        select(OAuthState.id)
+        .where(OAuthState.state_hash == _hash_oauth_value(state))
+        .where(OAuthState.consumed_at.is_(None))
+        .where(OAuthState.expires_at > now)
+    )
+    return state_id is not None
+
+
 def consume_oauth_state(db: Session, state: str) -> None:
     now = datetime.now(UTC)
     consumed_id = db.execute(
@@ -71,7 +82,7 @@ def cleanup_expired_oauth_states(db: Session) -> None:
     db.execute(delete(OAuthState).where(OAuthState.expires_at <= datetime.now(UTC)))
 
 
-def build_login_url(db: Session) -> str:
+def build_login_url(db: Session, *, redirect_uri: str | None = None) -> str:
     settings = get_settings()
     if not settings.github_app_client_id:
         raise AppError(
@@ -79,20 +90,33 @@ def build_login_url(db: Session) -> str:
             "github_app_config_missing",
             "GITHUB_APP_CLIENT_ID is required.",
         )
+    callback_url = redirect_uri or settings.auth_callback_url
     created_state = create_oauth_state(db)
     query = urlencode(
         {
             "client_id": settings.github_app_client_id,
-            "redirect_uri": settings.auth_callback_url,
+            "redirect_uri": callback_url,
             "state": created_state.state,
         }
     )
     return f"https://github.com/login/oauth/authorize?{query}"
 
 
-def exchange_code_for_user(code: str, state: str, db: Session) -> User:
-    consume_oauth_state(db, state)
+def exchange_code_for_user(
+    code: str,
+    state: str,
+    db: Session,
+    *,
+    redirect_uri: str | None = None,
+) -> User:
+    if not _oauth_state_is_valid(db, state):
+        raise AppError(
+            400,
+            "github_oauth_state_invalid",
+            "GitHub OAuth state is invalid.",
+        )
     settings = get_settings()
+    callback_url = redirect_uri or settings.auth_callback_url
     response = httpx.post(
         "https://github.com/login/oauth/access_token",
         headers={"Accept": "application/json"},
@@ -100,7 +124,7 @@ def exchange_code_for_user(code: str, state: str, db: Session) -> User:
             "client_id": settings.github_app_client_id,
             "client_secret": settings.github_app_client_secret,
             "code": code,
-            "redirect_uri": settings.auth_callback_url,
+            "redirect_uri": callback_url,
         },
         timeout=20,
     )
@@ -132,6 +156,7 @@ def exchange_code_for_user(code: str, state: str, db: Session) -> User:
             "github_oauth_exchange_failed",
             "GitHub user identity could not be read.",
         )
+    consume_oauth_state(db, state)
     return upsert_user_from_github(db, user_response.json(), token)
 
 

@@ -27,8 +27,13 @@ def get_me(current_user: AuthenticatedUser = Depends(get_current_user)):
 
 
 @router.get("/github/login")
-def github_login(db: Session = Depends(get_db)):
-    return RedirectResponse(github_oauth_service.build_login_url(db))
+def github_login(request: Request, db: Session = Depends(get_db)):
+    return RedirectResponse(
+        github_oauth_service.build_login_url(
+            db,
+            redirect_uri=_github_oauth_callback_url(request),
+        )
+    )
 
 
 @router.get("/github/callback")
@@ -38,7 +43,13 @@ def github_callback(
     state: str = Query(),
     db: Session = Depends(get_db),
 ):
-    user = github_oauth_service.exchange_code_for_user(code, state, db)
+    callback_url = _github_oauth_callback_url(request)
+    user = github_oauth_service.exchange_code_for_user(
+        code,
+        state,
+        db,
+        redirect_uri=callback_url,
+    )
     created = session_service.create_session(db, user)
     response = RedirectResponse(_post_login_redirect_url(request), status_code=303)
     session_service.set_session_cookies(response, created)
@@ -58,6 +69,19 @@ def logout(
     session_service.revoke_session(db, cookie_value)
     session_service.clear_session_cookies(response)
     return {"status": "ok"}
+
+
+def _github_oauth_callback_url(request: Request) -> str:
+    settings = session_service.get_settings()
+    if not os.environ.get("VERCEL"):
+        return settings.auth_callback_url
+
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    if not host:
+        return settings.auth_callback_url
+    host = host.split(",")[0].strip()
+    return f"{scheme}://{host}/server/api/auth/github/callback"
 
 
 def _post_login_redirect_url(request: Request) -> str:

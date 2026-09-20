@@ -1,6 +1,7 @@
 # Graphify scan scope — merged with .gitignore (see docs/graphify.md)
 node_modules/
 frontend/dist/
+frontend/test-results/
 backend/.venv/
 **/__pycache__/
 review/
