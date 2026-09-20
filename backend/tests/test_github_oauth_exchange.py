@@ -89,6 +89,10 @@ def test_exchange_code_for_user_handles_token_errors(monkeypatch, reset_database
     with pytest.raises(AppError) as exc:
         github_oauth_service.exchange_code_for_user("code", created.state, db_session)
     assert exc.value.code == "github_oauth_exchange_failed"
+
+    with pytest.raises(AppError) as retry_exc:
+        github_oauth_service.exchange_code_for_user("code", created.state, db_session)
+    assert retry_exc.value.code == "github_oauth_exchange_failed"
     github_oauth_service.get_settings.cache_clear()
 
 

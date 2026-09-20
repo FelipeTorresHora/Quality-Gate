@@ -320,6 +320,37 @@ def test_login_redirects_to_github(monkeypatch, client, reset_database):
     github_oauth_service.get_settings.cache_clear()
 
 
+def test_login_redirect_uses_request_callback_on_vercel(
+    monkeypatch, client, reset_database
+):
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("GITHUB_APP_CLIENT_ID", "client-id")
+    monkeypatch.setenv(
+        "AUTH_CALLBACK_URL",
+        "https://quality-gate-gamma.vercel.app/server/api/auth/github/callback",
+    )
+    from app.services import github_oauth_service
+
+    github_oauth_service.get_settings.cache_clear()
+
+    response = client.get(
+        "/api/auth/github/login",
+        headers={
+            "host": "quality-gate-git-preview.vercel.app",
+            "x-forwarded-proto": "https",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code in {302, 307}
+    location = response.headers["location"]
+    assert (
+        "redirect_uri=https%3A%2F%2Fquality-gate-git-preview.vercel.app%2Fserver%2Fapi%2Fauth%2Fgithub%2Fcallback"
+        in location
+    )
+    github_oauth_service.get_settings.cache_clear()
+
+
 def test_post_login_redirect_uses_callback_origin_on_vercel_host_mismatch(
     monkeypatch,
 ):
@@ -391,7 +422,7 @@ def test_github_callback_sets_session_cookie_for_forwarded_vercel_origin(
     monkeypatch.setattr(
         github_oauth_service,
         "exchange_code_for_user",
-        lambda code, state, db: user,
+        lambda code, state, db, **kwargs: user,
     )
 
     response = client.get(
