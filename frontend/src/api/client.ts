@@ -14,8 +14,19 @@ import type {
   Repository
 } from "../types/api";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
+/** Same-origin `/server` on Vercel when VITE_API_BASE_URL is unset; localhost in dev. */
+export function resolveApiBaseUrl(): string {
+  const configured = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
+  if (configured) {
+    return configured;
+  }
+  if (import.meta.env.PROD) {
+    return "/server";
+  }
+  return "http://localhost:8000";
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 export class ApiError extends Error {
   detail: ApiErrorDetail;

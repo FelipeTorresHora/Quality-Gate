@@ -451,3 +451,51 @@ def _raise_installation_token_error():
         "github_installation_token_failed",
         "GitHub installation token could not be generated.",
     )
+
+
+def test_analysis_run_target_url_uses_vercel_production_host(monkeypatch):
+    from uuid import UUID
+
+    from app.services.github_publication_service import analysis_run_target_url
+
+    run_id = UUID("00000000-0000-0000-0000-000000000001")
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv(
+        "VERCEL_PROJECT_PRODUCTION_URL",
+        "quality-gate-gamma.vercel.app",
+    )
+    monkeypatch.setenv(
+        "FRONTEND_ORIGIN",
+        "https://quality-gate-git-cursor-preview.vercel.app",
+    )
+    get_settings = __import__(
+        "app.core.config", fromlist=["get_settings"]
+    ).get_settings
+    get_settings.cache_clear()
+
+    assert (
+        analysis_run_target_url(run_id)
+        == f"https://quality-gate-gamma.vercel.app/analysis-runs/{run_id}"
+    )
+    get_settings.cache_clear()
+
+
+def test_analysis_run_target_url_uses_frontend_origin_locally(monkeypatch):
+    from uuid import UUID
+
+    from app.services.github_publication_service import analysis_run_target_url
+
+    run_id = UUID("00000000-0000-0000-0000-000000000002")
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.delenv("VERCEL_PROJECT_PRODUCTION_URL", raising=False)
+    monkeypatch.setenv("FRONTEND_ORIGIN", "http://localhost:5173")
+    get_settings = __import__(
+        "app.core.config", fromlist=["get_settings"]
+    ).get_settings
+    get_settings.cache_clear()
+
+    assert (
+        analysis_run_target_url(run_id)
+        == f"http://localhost:5173/analysis-runs/{run_id}"
+    )
+    get_settings.cache_clear()

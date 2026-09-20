@@ -1,4 +1,5 @@
 import logging
+import os
 from uuid import UUID
 
 from sqlalchemy import select
@@ -21,8 +22,19 @@ from app.services.report_service import build_github_comment_body, github_commen
 log = logging.getLogger(__name__)
 
 
+def publication_frontend_origin() -> str:
+    settings = get_settings()
+    production_host = os.environ.get("VERCEL_PROJECT_PRODUCTION_URL")
+    if os.environ.get("VERCEL") and production_host:
+        host = production_host.strip().strip("/")
+        if host.startswith("http://") or host.startswith("https://"):
+            return host.rstrip("/")
+        return f"https://{host}"
+    return settings.frontend_origin.rstrip("/")
+
+
 def analysis_run_target_url(analysis_run_id: UUID) -> str:
-    origin = get_settings().frontend_origin.rstrip("/")
+    origin = publication_frontend_origin().rstrip("/")
     return f"{origin}/analysis-runs/{analysis_run_id}"
 
 

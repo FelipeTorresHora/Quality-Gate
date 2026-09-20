@@ -115,9 +115,11 @@ export default function HelpPage() {
           </li>
         </ul>
         <p className="help-footnote">
-          Set <code className="mono-value">VITE_API_BASE_URL</code> on the frontend build to your
-          public backend URL. Use <code className="mono-value">SESSION_COOKIE_SECURE=true</code>{" "}
-          when auth runs over HTTPS.
+          On Vercel, the production frontend build defaults{" "}
+          <code className="mono-value">VITE_API_BASE_URL</code> to same-origin{" "}
+          <code className="mono-value">/server</code> when unset. Override it only for split
+          hosting. Use <code className="mono-value">SESSION_COOKIE_SECURE=true</code> when auth
+          runs over HTTPS.
         </p>
       </section>
 
