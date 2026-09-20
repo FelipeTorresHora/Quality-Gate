@@ -320,15 +320,12 @@ def test_login_redirects_to_github(monkeypatch, client, reset_database):
     github_oauth_service.get_settings.cache_clear()
 
 
-def test_login_redirect_uses_request_callback_on_vercel(
+def test_login_redirect_uses_registered_auth_callback_on_vercel(
     monkeypatch, client, reset_database
 ):
     monkeypatch.setenv("VERCEL", "1")
     monkeypatch.setenv("GITHUB_APP_CLIENT_ID", "client-id")
-    monkeypatch.setenv(
-        "AUTH_CALLBACK_URL",
-        "https://quality-gate-gamma.vercel.app/server/api/auth/github/callback",
-    )
+    monkeypatch.setenv("AUTH_CALLBACK_URL", "https://quality-gate-gamma.vercel.app/server/api/auth/github/callback")
     from app.services import github_oauth_service
 
     github_oauth_service.get_settings.cache_clear()
@@ -336,7 +333,7 @@ def test_login_redirect_uses_request_callback_on_vercel(
     response = client.get(
         "/api/auth/github/login",
         headers={
-            "host": "quality-gate-git-preview.vercel.app",
+            "host": "quality-gate-felipetorreshoras-projects.vercel.app",
             "x-forwarded-proto": "https",
         },
         follow_redirects=False,
@@ -345,9 +342,28 @@ def test_login_redirect_uses_request_callback_on_vercel(
     assert response.status_code in {302, 307}
     location = response.headers["location"]
     assert (
-        "redirect_uri=https%3A%2F%2Fquality-gate-git-preview.vercel.app%2Fserver%2Fapi%2Fauth%2Fgithub%2Fcallback"
+        "redirect_uri=https%3A%2F%2Fquality-gate-gamma.vercel.app%2Fserver%2Fapi%2Fauth%2Fgithub%2Fcallback"
         in location
     )
+    assert "quality-gate-felipetorreshoras-projects" not in location
+    github_oauth_service.get_settings.cache_clear()
+
+
+def test_login_rejects_localhost_callback_on_vercel(monkeypatch, client, reset_database):
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("GITHUB_APP_CLIENT_ID", "client-id")
+    monkeypatch.setenv(
+        "AUTH_CALLBACK_URL",
+        "http://localhost:8000/api/auth/github/callback",
+    )
+    from app.services import github_oauth_service
+
+    github_oauth_service.get_settings.cache_clear()
+
+    response = client.get("/api/auth/github/login", follow_redirects=False)
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "github_oauth_callback_not_configured"
     github_oauth_service.get_settings.cache_clear()
 
 

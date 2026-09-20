@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import hashlib
+import os
 import secrets
 from urllib.parse import urlencode
 
@@ -82,7 +83,35 @@ def cleanup_expired_oauth_states(db: Session) -> None:
     db.execute(delete(OAuthState).where(OAuthState.expires_at <= datetime.now(UTC)))
 
 
-def build_login_url(db: Session, *, redirect_uri: str | None = None) -> str:
+def registered_oauth_callback_url() -> str:
+    settings = get_settings()
+    callback_url = settings.auth_callback_url.strip()
+    if not callback_url:
+        raise AppError(
+            503,
+            "github_oauth_callback_not_configured",
+            "AUTH_CALLBACK_URL must be set to the GitHub App OAuth callback URL.",
+        )
+
+    on_vercel = bool(os.environ.get("VERCEL"))
+    in_production = settings.app_env.lower() == "production"
+    if in_production or on_vercel:
+        if callback_url.startswith("http://localhost"):
+            raise AppError(
+                503,
+                "github_oauth_callback_not_configured",
+                "AUTH_CALLBACK_URL must not use localhost on Vercel or in production.",
+            )
+        if not callback_url.startswith("https://"):
+            raise AppError(
+                503,
+                "github_oauth_callback_not_configured",
+                "AUTH_CALLBACK_URL must use HTTPS on Vercel or in production.",
+            )
+    return callback_url
+
+
+def build_login_url(db: Session) -> str:
     settings = get_settings()
     if not settings.github_app_client_id:
         raise AppError(
@@ -90,7 +119,7 @@ def build_login_url(db: Session, *, redirect_uri: str | None = None) -> str:
             "github_app_config_missing",
             "GITHUB_APP_CLIENT_ID is required.",
         )
-    callback_url = redirect_uri or settings.auth_callback_url
+    callback_url = registered_oauth_callback_url()
     created_state = create_oauth_state(db)
     query = urlencode(
         {
@@ -102,13 +131,7 @@ def build_login_url(db: Session, *, redirect_uri: str | None = None) -> str:
     return f"https://github.com/login/oauth/authorize?{query}"
 
 
-def exchange_code_for_user(
-    code: str,
-    state: str,
-    db: Session,
-    *,
-    redirect_uri: str | None = None,
-) -> User:
+def exchange_code_for_user(code: str, state: str, db: Session) -> User:
     if not _oauth_state_is_valid(db, state):
         raise AppError(
             400,
@@ -116,7 +139,7 @@ def exchange_code_for_user(
             "GitHub OAuth state is invalid.",
         )
     settings = get_settings()
-    callback_url = redirect_uri or settings.auth_callback_url
+    callback_url = registered_oauth_callback_url()
     response = httpx.post(
         "https://github.com/login/oauth/access_token",
         headers={"Accept": "application/json"},
