@@ -1,10 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-test("GitHub login starts from production and preserves callback origin", async ({
+test("GitHub login uses registered OAuth callback URL", async ({
   page,
   request,
   baseURL
 }) => {
+  const registeredCallback =
+    process.env.E2E_AUTH_CALLBACK_URL ??
+    "https://quality-gate-gamma.vercel.app/server/api/auth/github/callback";
   const authMe = await request.get("/server/api/auth/me");
   expect(authMe.status()).toBe(401);
 
@@ -25,7 +28,5 @@ test("GitHub login starts from production and preserves callback origin", async 
   expect(authorizeUrl.pathname).toBe("/login/oauth/authorize");
   expect(authorizeUrl.searchParams.get("client_id")).toBeTruthy();
   expect(authorizeUrl.searchParams.get("state")).toBeTruthy();
-  expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(
-    `${baseURL}/server/api/auth/github/callback`
-  );
+  expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(registeredCallback);
 });

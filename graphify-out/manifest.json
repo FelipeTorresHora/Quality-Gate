@@ -114,10 +114,10 @@
     "semantic_hash": "0029ee723c28e548071d1fec2d3bd5ee"
   },
   "backend/app/api/routes_auth.py": {
-    "mtime": 1789864972.2492926,
-    "seen": 1789865096.9274554,
-    "ast_hash": "6539037dd9c412800f1cf57bfc2230a5",
-    "semantic_hash": "6539037dd9c412800f1cf57bfc2230a5"
+    "mtime": 1789865876.402125,
+    "seen": 1789865890.4307518,
+    "ast_hash": "e50e211ae3d985ef5ee57e31cf93e1ae",
+    "semantic_hash": "e50e211ae3d985ef5ee57e31cf93e1ae"
   },
   "backend/app/api/routes_coverage_execution_config.py": {
     "mtime": 1789863280.0,
@@ -534,10 +534,10 @@
     "semantic_hash": "c7b3ac9672a71d2ba1f5f20a773d99a1"
   },
   "backend/app/services/github_oauth_service.py": {
-    "mtime": 1789864971.9292927,
-    "seen": 1789865096.9275064,
-    "ast_hash": "e3e9f7fb56f1dc3dd8c69e1562cc9a76",
-    "semantic_hash": "e3e9f7fb56f1dc3dd8c69e1562cc9a76"
+    "mtime": 1789865876.0381238,
+    "seen": 1789865890.4331264,
+    "ast_hash": "a904bc2a92bb3f4feedf1ed1210c3645",
+    "semantic_hash": "a904bc2a92bb3f4feedf1ed1210c3645"
   },
   "backend/app/services/github_publication_service.py": {
     "mtime": 1789864836.2887254,
@@ -726,10 +726,10 @@
     "semantic_hash": "237f72ecbb90a4694552a0d79f41df9b"
   },
   "backend/tests/test_auth.py": {
-    "mtime": 1789864976.8732884,
-    "seen": 1789865096.9275293,
-    "ast_hash": "24c9bdf5f508db4cfd38b8a1c221c459",
-    "semantic_hash": "24c9bdf5f508db4cfd38b8a1c221c459"
+    "mtime": 1789865889.8901641,
+    "seen": 1789865890.4341123,
+    "ast_hash": "afc314840f03fa1456e72880db8c87e6",
+    "semantic_hash": "afc314840f03fa1456e72880db8c87e6"
   },
   "backend/tests/test_coverage_execution_config.py": {
     "mtime": 1789863280.0,
@@ -804,8 +804,8 @@
     "semantic_hash": "1ada73f5367b036055b45e3b6b526acd"
   },
   "backend/tests/test_github_oauth_exchange.py": {
-    "mtime": 1789864980.569282,
-    "seen": 1789865096.9275389,
+    "mtime": 1789865856.3900602,
+    "seen": 1789865890.434466,
     "ast_hash": "1d9762d4e00a9ad339cd925d60590d17",
     "semantic_hash": "1d9762d4e00a9ad339cd925d60590d17"
   },
@@ -1092,10 +1092,10 @@
     "semantic_hash": "0352474ba2918efe13895edbc3780d94"
   },
   "frontend/tests/e2e/auth.spec.ts": {
-    "mtime": 1789863280.0,
-    "seen": 1789865096.9275756,
-    "ast_hash": "3fac93653cc5e1852a8b27cc54e51eb1",
-    "semantic_hash": "3fac93653cc5e1852a8b27cc54e51eb1"
+    "mtime": 1789865884.594149,
+    "seen": 1789865890.4359226,
+    "ast_hash": "5ffd7d91b680a62aa76fb6c250abcd3c",
+    "semantic_hash": "5ffd7d91b680a62aa76fb6c250abcd3c"
   },
   "frontend/tsconfig.json": {
     "mtime": 1789863280.0,
