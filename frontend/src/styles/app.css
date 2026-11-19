@@ -468,11 +468,19 @@ td a:hover,
   padding: 14px 16px;
 }
 
-.panel-header h2 {
+.panel-header h2,
+.panel-header h3 {
   color: var(--text-strong);
   font-family: var(--font-display);
-  font-size: 16px;
   margin: 0;
+}
+
+.panel-header h2 {
+  font-size: 16px;
+}
+
+.panel-header h3 {
+  font-size: 14px;
 }
 
 .panel-subtitle {
@@ -704,9 +712,30 @@ select:focus {
 .status-renamed,
 .status-technical_debt,
 .status-coverage,
-.status-security {
+.status-security,
+.status-deterministic,
+.status-dismiss {
   background: var(--neutral-soft);
   color: var(--muted);
+}
+
+.status-ai,
+.status-code_review,
+.status-hybrid,
+.status-ai_only {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.status-partial,
+.status-downgrade {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.status-confirm {
+  background: var(--pass-soft);
+  color: var(--pass);
 }
 
 .error-banner,
@@ -871,9 +900,34 @@ select:focus {
   border-left-color: var(--pass);
 }
 
+.finding-copy {
+  min-width: 0;
+}
+
 .finding-item p {
   color: var(--text);
   margin: 6px 0;
+}
+
+.suggestion-code {
+  background: var(--bg);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin: 8px 0;
+  overflow: auto;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+}
+
+.ai-review-note {
+  margin: 16px 16px 0;
+}
+
+.pillar-insight-stack {
+  border-top: 1px solid var(--border-soft);
+  display: grid;
 }
 
 .finding-item span {
