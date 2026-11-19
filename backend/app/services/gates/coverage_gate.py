@@ -89,6 +89,13 @@ def run_coverage_gate(
         command_metadata=evidence_workspace.metadata_since(checkpoint),
         unmatched=changed.unmatched,
     )
+    changed_files = analysis_run.changed_files_snapshot_json or []
+    snapshot["uncovered_lines_by_file"] = uncovered_lines_by_file(
+        head_report,
+        changed_files if isinstance(changed_files, list) else [],
+        coverage_config.language.value,
+        getattr(coverage_config, "working_directory", "."),
+    )
     return GateResult(snapshot=snapshot, findings=findings)
 
 
@@ -138,6 +145,36 @@ def calculate_changed_files_coverage(
         changed_source_files=source_files,
         unmatched=unmatched,
     )
+
+
+def uncovered_lines_by_file(
+    report: CoverageReport,
+    changed_files: list[dict[str, Any]],
+    language: str,
+    working_directory: str = ".",
+) -> dict[str, list[int]]:
+    """Uncovered lines for changed source files that the coverage report measured.
+
+    Keys are changed-file paths from the coverage snapshot. Unchanged report
+    files, non-source paths, and changed files with no coverage match are
+    omitted. This map is AI evidence. Deterministic gates still own Gate Decision.
+    """
+
+    normalized_report = {
+        _normalize_path(path): value for path, value in report.files.items()
+    }
+    result: dict[str, list[int]] = {}
+    for item in changed_files:
+        if not isinstance(item, dict):
+            continue
+        filename = item.get("filename")
+        if not isinstance(filename, str) or not is_source_file(filename, language):
+            continue
+        coverage = _lookup_coverage(normalized_report, filename, working_directory)
+        if coverage is None:
+            continue
+        result[filename] = sorted(set(coverage.uncovered_lines))
+    return result
 
 
 def _match_keys(path: str, working_directory: str) -> set[str]:

@@ -1,10 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
 class CoverageFile:
     covered: int
     total: int
+    uncovered_lines: list[int] = field(default_factory=list)
 
     @property
     def percentage(self) -> float:
