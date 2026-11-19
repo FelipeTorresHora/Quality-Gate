@@ -1,7 +1,9 @@
 import logging
 import os
+from typing import Any
 from uuid import UUID
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -16,6 +18,13 @@ from app.schemas.analysis import (
     GitHubPublicationStatusResult,
 )
 from app.services import github_app_auth_service, github_installation_service
+from app.services.agent.schemas import (
+    AIReviewGenerated,
+    AIReviewPartial,
+    InlineComment,
+    parse_ai_review_snapshot,
+)
+from app.services.evidence_redaction_service import redact_text
 from app.services.github_service import GitHubClient
 from app.services.report_service import build_github_comment_body, github_comment_marker
 
@@ -168,6 +177,38 @@ def _client_for_run(db: Session, run: AnalysisRun) -> GitHubClient:
 def _publish_comment(
     client: GitHubClient, run: AnalysisRun
 ) -> GitHubPublicationCommentResult:
+    # COMMENT reviews are notes on the diff. They do not approve the Pull
+    # Request or change Gate Decision (ADR 0032). Publication stays an explicit
+    # action (ADR 0034).
+    comments = _validated_inline_comments(run)
+    if comments:
+        try:
+            published = client.create_pull_request_review(
+                run.repository.owner,
+                run.repository.name,
+                run.pr_number,
+                run.head_sha,
+                build_github_comment_body(run),
+                [_review_comment_payload(comment) for comment in comments],
+            )
+        except AppError as exc:
+            # GitHub returns 422 when a comment line is outside the diff.
+            # Fall back to the issue comment so the idempotency marker remains.
+            if exc.status_code != 422:
+                raise
+        else:
+            return GitHubPublicationCommentResult(
+                enabled=True,
+                published=True,
+                html_url=published.get("html_url"),
+                skipped_reason=None,
+            )
+    return _publish_issue_comment(client, run)
+
+
+def _publish_issue_comment(
+    client: GitHubClient, run: AnalysisRun
+) -> GitHubPublicationCommentResult:
     owner = run.repository.owner
     name = run.repository.name
     marker = github_comment_marker(run)
@@ -220,6 +261,31 @@ def _publish_commit_status(
         target_url=target_url,
         skipped_reason=None,
     )
+
+
+def _validated_inline_comments(run: AnalysisRun) -> list[InlineComment]:
+    try:
+        snapshot = parse_ai_review_snapshot(run.ai_review_json or {})
+    except ValidationError:
+        return []
+    if not isinstance(snapshot, (AIReviewGenerated, AIReviewPartial)):
+        return []
+    return list(snapshot.inline_comments)
+
+
+def _review_comment_payload(comment: InlineComment) -> dict[str, Any]:
+    lines = [
+        f"**{comment.title}** ({comment.severity.value})",
+        "",
+        comment.body,
+    ]
+    if comment.suggestion_code:
+        lines.extend(["", "```suggestion", comment.suggestion_code, "```"])
+    return {
+        "path": comment.file_path,
+        "line": comment.line_number,
+        "body": redact_text("\n".join(lines)),
+    }
 
 
 def _status_state_and_description(run: AnalysisRun) -> tuple[str, str]:
