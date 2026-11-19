@@ -1,11 +1,24 @@
 from uuid import UUID
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer
+from sqlalchemy import Boolean, Enum, Float, ForeignKey, Integer, false
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PostgresUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.enums import GateEvaluationMode
 from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
+
+
+def enum_values(enum_cls):
+    return [member.value for member in enum_cls]
+
+
+_gate_evaluation_mode = Enum(
+    GateEvaluationMode,
+    name="gate_evaluation_mode",
+    values_callable=enum_values,
+    native_enum=True,
+)
 
 
 class QualityGateConfig(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -33,6 +46,29 @@ class QualityGateConfig(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     fail_on_new_todo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     technical_debt_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True
+    )
+    # Off until a repository opts into the code review pillar.
+    code_review_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    # hybrid: deterministic gate still owns Gate Decision; AI findings stay non-blocking.
+    coverage_mode: Mapped[GateEvaluationMode] = mapped_column(
+        _gate_evaluation_mode,
+        nullable=False,
+        default=GateEvaluationMode.HYBRID,
+        server_default=GateEvaluationMode.HYBRID.value,
+    )
+    security_mode: Mapped[GateEvaluationMode] = mapped_column(
+        _gate_evaluation_mode,
+        nullable=False,
+        default=GateEvaluationMode.HYBRID,
+        server_default=GateEvaluationMode.HYBRID.value,
+    )
+    technical_debt_mode: Mapped[GateEvaluationMode] = mapped_column(
+        _gate_evaluation_mode,
+        nullable=False,
+        default=GateEvaluationMode.HYBRID,
+        server_default=GateEvaluationMode.HYBRID.value,
     )
     comment_on_github: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True
