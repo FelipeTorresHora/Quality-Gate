@@ -1130,10 +1130,10 @@
     "semantic_hash": "f8962e30928da35250377298d9b4acac"
   },
   "vercel.json": {
-    "mtime": 1795114731.583416,
-    "seen": 1795116246.6598027,
-    "ast_hash": "2450046d2b1562fe1a64487816d517b1",
-    "semantic_hash": "2450046d2b1562fe1a64487816d517b1"
+    "mtime": 1795117247.3230402,
+    "seen": 1795117430.3712893,
+    "ast_hash": "69413e91c15a998ade7df9c95bfd406e",
+    "semantic_hash": "69413e91c15a998ade7df9c95bfd406e"
   },
   ".github/workflows/ci.yml": {
     "mtime": 1795114731.555379,
