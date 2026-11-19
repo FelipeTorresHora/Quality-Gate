@@ -12,7 +12,7 @@ def generate_ai_review_snapshot(*, analysis_run: AnalysisRun) -> dict:
         return AIReviewSkipped().model_dump(mode="json")
 
     try:
-        from app.services.agent.graph import compiled_review_graph
+        from app.services.agent.graph import build_review_graph_input, compiled_review_graph
 
         evidence = build_ai_review_input(analysis_run)
         config = build_invocation_config(
@@ -22,16 +22,17 @@ def generate_ai_review_snapshot(*, analysis_run: AnalysisRun) -> dict:
             prompt_version=PROMPT_VERSION,
         )
         result = compiled_review_graph().invoke(
-            {
-                "analysis_run": analysis_run,
-                "model": settings.openai_model,
-                "prompt_version": PROMPT_VERSION,
-            },
+            build_review_graph_input(
+                analysis_run,
+                model=settings.openai_model,
+                prompt_version=PROMPT_VERSION,
+            ),
             config=config,
         )
         snapshot = result.get("final_snapshot")
         if isinstance(snapshot, dict) and snapshot.get("status") in {
             "generated",
+            "partial",
             "skipped",
             "error",
         }:
