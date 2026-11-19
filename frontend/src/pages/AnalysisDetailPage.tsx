@@ -12,11 +12,16 @@ import ErrorMessage from "../components/ErrorMessage";
 import LoadingBlock from "../components/LoadingBlock";
 import StatusBadge from "../components/StatusBadge";
 import type {
+  AIGateFinding,
   AIReviewSnapshot,
   AnalysisRunDetail,
+  ContextBudgetMetadata,
   GitHubPublicationResult,
+  InlineComment,
+  PillarInsights,
   PullRequestSnapshot,
-  QualityGateConfig
+  QualityGateConfig,
+  TriagedAlert
 } from "../types/api";
 
 export default function AnalysisDetailPage() {
@@ -256,6 +261,10 @@ export default function AnalysisDetailPage() {
       {publicationResult && <PublicationResultPanel result={publicationResult} />}
 
       <AIReviewPanel value={run.ai_review_json} score={run.score} />
+      {isGeneratedAIReview(run.ai_review_json) ||
+      isPartialAIReview(run.ai_review_json) ? (
+        <CodeReviewPanel review={run.ai_review_json} />
+      ) : null}
 
       {pullRequestContext && (
         <PullRequestContextPanel
@@ -282,15 +291,20 @@ export default function AnalysisDetailPage() {
           <div className="finding-list">
             {run.findings.map((finding) => (
               <article className="finding-item" key={finding.id}>
-                <div>
+                <div className="finding-copy">
                   <strong>{finding.title}</strong>
                   <p>{finding.description}</p>
-                  <span>
+                  {finding.suggestion_code ? (
+                    <pre className="suggestion-code">{finding.suggestion_code}</pre>
+                  ) : null}
+                  <span className="mono-value">
                     {finding.file_path ?? "n/a"}
                     {finding.line_number ? `:${finding.line_number}` : ""}
                   </span>
                 </div>
                 <div className="finding-meta">
+                  <StatusBadge value={finding.source} />
+                  <ConfidenceBadge value={finding.confidence} />
                   <StatusBadge value={finding.category} />
                   <StatusBadge value={finding.severity} />
                   <StatusBadge value={finding.blocking ? "blocking" : "warning"} />
@@ -338,7 +352,13 @@ function AIReviewPanel({
   value: AIReviewSnapshot;
   score: number | null;
 }) {
-  if (isGeneratedAIReview(value)) {
+  if (isGeneratedAIReview(value) || isPartialAIReview(value)) {
+    const partial = value.status === "partial";
+    const assessments = [
+      value.coverage_assessment,
+      value.security_assessment,
+      value.technical_debt_assessment
+    ].filter((assessment) => assessment.trim() !== "");
     return (
       <section className="panel ai-review-panel">
         <div className="panel-header">
@@ -351,13 +371,21 @@ function AIReviewPanel({
             <StatusBadge value={value.risk_level} />
           </div>
         </div>
+        {partial ? (
+          <div className="warn-banner ai-review-note">
+            <strong>Partial AI review</strong>
+            The context budget stopped this review ({value.reason}). Inline
+            comments, pillar insights, and the budget below are the portion
+            that finished.
+          </div>
+        ) : null}
         <div className="summary-copy">
           <p>{value.summary}</p>
         </div>
         <div className="metrics-grid four compact-metrics">
           <div className="metric">
             <span>AI Score</span>
-            <strong>{score ?? value.score}</strong>
+            <strong>{partial ? (value.score ?? "—") : (score ?? value.score)}</strong>
           </div>
           <div className="metric">
             <span>Risk</span>
@@ -374,11 +402,13 @@ function AIReviewPanel({
             <strong>{value.suggestions.length}</strong>
           </div>
         </div>
-        <div className="ai-assessments">
-          <p>{value.coverage_assessment}</p>
-          <p>{value.security_assessment}</p>
-          <p>{value.technical_debt_assessment}</p>
-        </div>
+        {assessments.length > 0 ? (
+          <div className="ai-assessments">
+            {assessments.map((assessment) => (
+              <p key={assessment}>{assessment}</p>
+            ))}
+          </div>
+        ) : null}
         {value.suggestions.length > 0 && (
           <div className="note-list muted">
             {value.suggestions.map((suggestion) => (
@@ -386,6 +416,9 @@ function AIReviewPanel({
             ))}
           </div>
         )}
+        {value.pillar_insights ? (
+          <PillarInsightsSection insights={value.pillar_insights} />
+        ) : null}
       </section>
     );
   }
@@ -429,6 +462,254 @@ function AIReviewPanel({
       </EmptyState>
     </section>
   );
+}
+
+function CodeReviewPanel({
+  review
+}: {
+  review: Extract<AIReviewSnapshot, { status: "generated" | "partial" }>;
+}) {
+  const comments = review.inline_comments ?? [];
+  const budget = review.context_budget ?? null;
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <div>
+          <h2>Code Review</h2>
+          <p className="panel-subtitle">
+            {comments.length} inline {comments.length === 1 ? "comment" : "comments"}
+          </p>
+        </div>
+        <StatusBadge value={review.status} />
+      </div>
+      {comments.length === 0 ? (
+        <EmptyState title="No inline comments">
+          This review did not attach code review comments to changed lines.
+        </EmptyState>
+      ) : (
+        <div className="finding-list">
+          {comments.map((comment, index) => (
+            <InlineCommentItem comment={comment} key={commentKey(comment, index)} />
+          ))}
+        </div>
+      )}
+      {budget ? <ContextBudgetBlock budget={budget} /> : null}
+    </section>
+  );
+}
+
+function InlineCommentItem({ comment }: { comment: InlineComment }) {
+  return (
+    <article className="finding-item">
+      <div className="finding-copy">
+        <strong>{comment.title}</strong>
+        <p>{comment.body}</p>
+        {comment.suggestion_code ? (
+          <pre className="suggestion-code">{comment.suggestion_code}</pre>
+        ) : null}
+        <span className="mono-value">
+          {comment.file_path}:{comment.line_number}
+        </span>
+      </div>
+      <div className="finding-meta">
+        <StatusBadge value={comment.severity} />
+        <ConfidenceBadge value={comment.confidence} />
+      </div>
+    </article>
+  );
+}
+
+function ContextBudgetBlock({ budget }: { budget: ContextBudgetMetadata }) {
+  const limits = [
+    budget.batch_max_chars !== null
+      ? { label: "Batch max characters", value: String(budget.batch_max_chars) }
+      : null,
+    budget.max_batches !== null
+      ? { label: "Max batches", value: String(budget.max_batches) }
+      : null,
+    budget.pillar_max_chars !== null
+      ? { label: "Pillar max characters", value: String(budget.pillar_max_chars) }
+      : null
+  ].filter((row): row is { label: string; value: string } => row !== null);
+
+  return (
+    <>
+      <div className="metrics-grid four compact-metrics">
+        <div className="metric">
+          <span>Batches sent</span>
+          <strong>{budget.batches_sent}</strong>
+        </div>
+        <div className="metric">
+          <span>Batches total</span>
+          <strong>{budget.batches_total}</strong>
+        </div>
+        <div className="metric">
+          <span>Review truncated</span>
+          <strong>{budget.review_truncated ? "yes" : "no"}</strong>
+        </div>
+        <div className="metric">
+          <span>Skipped files</span>
+          <strong>{budget.skipped_files.length}</strong>
+        </div>
+      </div>
+      {limits.length > 0 ? (
+        <div className="summary-list">
+          {limits.map((row) => (
+            <div className="summary-row" key={row.label}>
+              <span>{row.label}</span>
+              <strong>{row.value}</strong>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {budget.skipped_files.length === 0 ? (
+        <EmptyState title="No skipped files">
+          No changed files were left out of the model input.
+        </EmptyState>
+      ) : (
+        <>
+          <div className="panel-header">
+            <h3>Skipped files</h3>
+          </div>
+          <div className="note-list">
+            {budget.skipped_files.map((path, index) => (
+              <p key={`${path}:${index}`}>
+                <code className="mono-value">{path}</code>
+              </p>
+            ))}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+function PillarInsightsSection({ insights }: { insights: PillarInsights }) {
+  const sections = [
+    insights.coverage
+      ? {
+          key: "coverage",
+          title: "Coverage",
+          summary: insights.coverage.summary,
+          assessment: insights.coverage.coverage_assessment,
+          findings: insights.coverage.findings,
+          alerts: [] as TriagedAlert[]
+        }
+      : null,
+    insights.security
+      ? {
+          key: "security",
+          title: "Security",
+          summary: insights.security.summary,
+          assessment: insights.security.security_assessment,
+          findings: insights.security.findings,
+          alerts: insights.security.triaged_alerts
+        }
+      : null,
+    insights.technical_debt
+      ? {
+          key: "technical_debt",
+          title: "Technical debt",
+          summary: insights.technical_debt.summary,
+          assessment: insights.technical_debt.technical_debt_assessment,
+          findings: insights.technical_debt.findings,
+          alerts: [] as TriagedAlert[]
+        }
+      : null
+  ].filter((section) => section !== null);
+
+  if (sections.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="pillar-insight-stack">
+      {sections.map((section) => (
+        <section key={section.key}>
+          <div className="panel-header">
+            <h3>{section.title}</h3>
+          </div>
+          <div className="summary-copy">
+            {section.summary ? <p>{section.summary}</p> : null}
+            {section.assessment ? <p>{section.assessment}</p> : null}
+          </div>
+          {section.alerts.length > 0 ? (
+            <div className="finding-list">
+              {section.alerts.map((alert, index) => (
+                <TriagedAlertItem alert={alert} key={`${alert.title}:${index}`} />
+              ))}
+            </div>
+          ) : null}
+          {section.findings.length > 0 ? (
+            <div className="finding-list">
+              {section.findings.map((finding, index) => (
+                <AIGateFindingItem
+                  finding={finding}
+                  key={`${finding.title}:${index}`}
+                />
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function TriagedAlertItem({ alert }: { alert: TriagedAlert }) {
+  const location = locationLabel(alert.file_path, alert.line_number);
+  return (
+    <article className="finding-item">
+      <div className="finding-copy">
+        <strong>{alert.title}</strong>
+        <p>{alert.description}</p>
+        <p>{alert.rationale}</p>
+        {alert.suggestion_code ? (
+          <pre className="suggestion-code">{alert.suggestion_code}</pre>
+        ) : null}
+        <span className="mono-value">
+          {alert.scanner}
+          {alert.rule_id ? ` ${alert.rule_id}` : ""}
+          {location ? ` ${location}` : ""}
+        </span>
+      </div>
+      <div className="finding-meta">
+        <StatusBadge value={alert.disposition} />
+        <StatusBadge value={alert.severity} />
+        <ConfidenceBadge value={alert.confidence} />
+      </div>
+    </article>
+  );
+}
+
+function AIGateFindingItem({ finding }: { finding: AIGateFinding }) {
+  const location = locationLabel(finding.file_path, finding.line_number);
+  return (
+    <article className="finding-item">
+      <div className="finding-copy">
+        <strong>{finding.title}</strong>
+        <p>{finding.description}</p>
+        {finding.suggestion_code ? (
+          <pre className="suggestion-code">{finding.suggestion_code}</pre>
+        ) : null}
+        {location ? <span className="mono-value">{location}</span> : null}
+      </div>
+      <div className="finding-meta">
+        <StatusBadge value={finding.source} />
+        <ConfidenceBadge value={finding.confidence} />
+        <StatusBadge value={finding.category} />
+        <StatusBadge value={finding.severity} />
+        <StatusBadge value={finding.blocking ? "blocking" : "warning"} />
+      </div>
+    </article>
+  );
+}
+
+function ConfidenceBadge({ value }: { value: number | null }) {
+  if (value === null) {
+    return null;
+  }
+  return <span className="status-badge">confidence {formatConfidence(value)}</span>;
 }
 
 function PublicationResultPanel({ result }: { result: GitHubPublicationResult }) {
@@ -723,6 +1004,13 @@ function isGeneratedAIReview(value: AIReviewSnapshot): value is Extract<
   return "status" in value && value.status === "generated";
 }
 
+function isPartialAIReview(value: AIReviewSnapshot): value is Extract<
+  AIReviewSnapshot,
+  { status: "partial" }
+> {
+  return "status" in value && value.status === "partial";
+}
+
 function isSkippedAIReview(value: AIReviewSnapshot): value is Extract<
   AIReviewSnapshot,
   { status: "skipped" }
@@ -770,4 +1058,22 @@ function formatDate(value: string | null) {
 
 function shortSha(value: string) {
   return value.length > 12 ? value.slice(0, 12) : value;
+}
+
+function formatConfidence(value: number) {
+  if (!Number.isFinite(value)) {
+    return String(value);
+  }
+  return String(Math.round(value * 100) / 100);
+}
+
+function locationLabel(filePath: string | null, lineNumber: number | null) {
+  if (!filePath) {
+    return null;
+  }
+  return lineNumber ? `${filePath}:${lineNumber}` : filePath;
+}
+
+function commentKey(comment: InlineComment, index: number) {
+  return `${comment.file_path}:${comment.line_number}:${index}`;
 }
