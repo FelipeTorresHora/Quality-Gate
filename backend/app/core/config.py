@@ -40,7 +40,10 @@ class Settings(BaseSettings):
     auth_callback_url: str = "http://localhost:8000/api/auth/github/callback"
     github_oauth_state_ttl_seconds: int = 600
     openai_api_key: str | None = None
-    openai_model: str = "gpt-4.1-mini"
+    openai_model: str = "gpt-6-luna"
+    ai_batch_max_chars: int = 8000
+    ai_max_batches: int = 12
+    ai_pillar_max_chars: int = 8000
     langsmith_tracing: bool = False
     langsmith_api_key: str | None = None
     langsmith_project: str = "pr-quality-dashboard"

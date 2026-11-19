@@ -2,13 +2,13 @@ from uuid import UUID
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID as PostgresUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db.base import Base
-from app.models.enums import FindingCategory, FindingSeverity
+from app.models.enums import FindingCategory, FindingSeverity, FindingSource
 from app.models.mixins import UUIDPrimaryKeyMixin
 
 
@@ -48,6 +48,20 @@ class AnalysisFinding(UUIDPrimaryKeyMixin, Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     blocking: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Existing rows stay deterministic. AI rows set source=ai, blocking=false.
+    source: Mapped[FindingSource] = mapped_column(
+        Enum(
+            FindingSource,
+            name="finding_source",
+            values_callable=enum_values,
+            native_enum=True,
+        ),
+        nullable=False,
+        default=FindingSource.DETERMINISTIC,
+        server_default=FindingSource.DETERMINISTIC.value,
+    )
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    suggestion_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

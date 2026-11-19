@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.enums import GateEvaluationMode
+
 
 class QualityGateConfigUpdate(BaseModel):
     min_total_coverage: float | None = Field(default=None, ge=0, le=100)
@@ -15,6 +17,10 @@ class QualityGateConfigUpdate(BaseModel):
     max_complexity: int | None = Field(default=None, ge=1)
     fail_on_new_todo: bool | None = None
     technical_debt_enabled: bool | None = None
+    code_review_enabled: bool | None = None
+    coverage_mode: GateEvaluationMode | None = None
+    security_mode: GateEvaluationMode | None = None
+    technical_debt_mode: GateEvaluationMode | None = None
     comment_on_github: bool | None = None
     publish_github_status: bool | None = None
 
@@ -32,6 +38,10 @@ class QualityGateConfigRead(BaseModel):
     max_complexity: int
     fail_on_new_todo: bool
     technical_debt_enabled: bool
+    code_review_enabled: bool
+    coverage_mode: GateEvaluationMode
+    security_mode: GateEvaluationMode
+    technical_debt_mode: GateEvaluationMode
     comment_on_github: bool
     publish_github_status: bool
     created_at: datetime
