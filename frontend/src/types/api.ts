@@ -29,6 +29,22 @@ export type Repository = {
   updated_at: string;
 };
 
+export type FindingCategory =
+  | "coverage"
+  | "security"
+  | "technical_debt"
+  | "code_review";
+
+export type FindingSeverity = "low" | "medium" | "high" | "critical";
+
+export type FindingSource = "deterministic" | "ai";
+
+export type GateEvaluationMode = "hybrid" | "deterministic" | "ai_only";
+
+export type AlertDisposition = "confirm" | "downgrade" | "dismiss";
+
+export type SecurityScanner = "semgrep" | "detect-secrets" | "bandit" | "pip-audit";
+
 export type QualityGateConfig = {
   id: string;
   repository_id: string;
@@ -42,6 +58,10 @@ export type QualityGateConfig = {
   max_complexity: number;
   fail_on_new_todo: boolean;
   technical_debt_enabled: boolean;
+  code_review_enabled: boolean;
+  coverage_mode: GateEvaluationMode;
+  security_mode: GateEvaluationMode;
+  technical_debt_mode: GateEvaluationMode;
   comment_on_github: boolean;
   publish_github_status: boolean;
   created_at: string;
@@ -51,13 +71,16 @@ export type QualityGateConfig = {
 export type AnalysisFinding = {
   id: string;
   analysis_run_id: string;
-  category: "coverage" | "security" | "technical_debt";
-  severity: "low" | "medium" | "high" | "critical";
+  category: FindingCategory;
+  severity: FindingSeverity;
   file_path: string | null;
   line_number: number | null;
   title: string;
   description: string;
   blocking: boolean;
+  source: FindingSource;
+  confidence: number | null;
+  suggestion_code: string | null;
   created_at: string;
 };
 
@@ -111,6 +134,79 @@ export type AnalysisRunSummary = {
   finished_at: string | null;
 };
 
+export type InlineComment = {
+  file_path: string;
+  line_number: number;
+  title: string;
+  body: string;
+  severity: FindingSeverity;
+  confidence: number;
+  suggestion_code: string | null;
+  category: "code_review";
+};
+
+export type AIGateFinding = {
+  category: FindingCategory;
+  severity: FindingSeverity;
+  file_path: string | null;
+  line_number: number | null;
+  title: string;
+  description: string;
+  confidence: number;
+  suggestion_code: string | null;
+  source: "ai";
+  blocking: false;
+};
+
+export type TriagedAlert = {
+  scanner: SecurityScanner;
+  rule_id: string | null;
+  file_path: string | null;
+  line_number: number | null;
+  severity: FindingSeverity;
+  title: string;
+  description: string;
+  confidence: number;
+  disposition: AlertDisposition;
+  rationale: string;
+  suggestion_code: string | null;
+};
+
+export type AICoverageReview = {
+  summary: string;
+  coverage_assessment: string;
+  findings: AIGateFinding[];
+};
+
+export type AISecurityReview = {
+  summary: string;
+  security_assessment: string;
+  triaged_alerts: TriagedAlert[];
+  findings: AIGateFinding[];
+};
+
+export type AITechDebtReview = {
+  summary: string;
+  technical_debt_assessment: string;
+  findings: AIGateFinding[];
+};
+
+export type PillarInsights = {
+  coverage: AICoverageReview | null;
+  security: AISecurityReview | null;
+  technical_debt: AITechDebtReview | null;
+};
+
+export type ContextBudgetMetadata = {
+  batches_sent: number;
+  batches_total: number;
+  review_truncated: boolean;
+  skipped_files: string[];
+  batch_max_chars: number | null;
+  max_batches: number | null;
+  pillar_max_chars: number | null;
+};
+
 export type AIReviewSnapshot =
   | {
       status: "generated";
@@ -124,14 +220,34 @@ export type AIReviewSnapshot =
       coverage_assessment: string;
       security_assessment: string;
       technical_debt_assessment: string;
+      inline_comments?: InlineComment[];
+      pillar_insights?: PillarInsights;
+      context_budget?: ContextBudgetMetadata;
+    }
+  | {
+      status: "partial";
+      model: string;
+      generated_at: string;
+      score: number | null;
+      summary: string;
+      risk_level: "low" | "medium" | "high";
+      blocking_reasons: string[];
+      suggestions: string[];
+      coverage_assessment: string;
+      security_assessment: string;
+      technical_debt_assessment: string;
+      inline_comments: InlineComment[];
+      pillar_insights: PillarInsights;
+      context_budget: ContextBudgetMetadata;
+      reason: "context_budget_exhausted";
     }
   | {
       status: "skipped";
-      reason: "openai_api_key_missing" | string;
+      reason: "openai_api_key_missing";
     }
   | {
       status: "error";
-      reason: "ai_review_failed" | string;
+      reason: "ai_review_failed";
       message: string;
     }
   | Record<string, never>;
@@ -159,13 +275,13 @@ export type DashboardRecentAnalysisRun = AnalysisRunSummary & {
 };
 
 export type DashboardFindingCount = {
-  category: "coverage" | "security" | "technical_debt";
-  severity: "low" | "medium" | "high" | "critical";
+  category: FindingCategory;
+  severity: FindingSeverity;
   count: number;
 };
 
 export type DashboardBlockingCategory = {
-  category: "coverage" | "security" | "technical_debt";
+  category: FindingCategory;
   count: number;
 };
 

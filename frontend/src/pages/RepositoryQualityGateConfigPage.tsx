@@ -10,7 +10,11 @@ import {
 import ErrorMessage from "../components/ErrorMessage";
 import LoadingBlock from "../components/LoadingBlock";
 import type { RepositoryWorkspaceContext } from "./RepositoryDetailPage";
-import type { CoverageExecutionConfig, QualityGateConfig } from "../types/api";
+import type {
+  CoverageExecutionConfig,
+  GateEvaluationMode,
+  QualityGateConfig
+} from "../types/api";
 
 export default function RepositoryQualityGateConfigPage() {
   const { repository } = useOutletContext<RepositoryWorkspaceContext>();
@@ -64,6 +68,10 @@ export default function RepositoryQualityGateConfigPage() {
       max_complexity: next.max_complexity,
       fail_on_new_todo: next.fail_on_new_todo,
       technical_debt_enabled: next.technical_debt_enabled,
+      code_review_enabled: next.code_review_enabled,
+      coverage_mode: next.coverage_mode,
+      security_mode: next.security_mode,
+      technical_debt_mode: next.technical_debt_mode,
       comment_on_github: next.comment_on_github,
       publish_github_status: next.publish_github_status
     });
@@ -277,6 +285,10 @@ export default function RepositoryQualityGateConfigPage() {
                 }
               />
             </label>
+            <EvaluationModeField
+              value={config.coverage_mode}
+              onChange={(coverage_mode) => setConfig({ ...config, coverage_mode })}
+            />
             <label className="checkbox-line">
               <input
                 checked={config.coverage_enabled}
@@ -314,6 +326,10 @@ export default function RepositoryQualityGateConfigPage() {
                 }
               />
             </label>
+            <EvaluationModeField
+              value={config.security_mode}
+              onChange={(security_mode) => setConfig({ ...config, security_mode })}
+            />
             <label className="checkbox-line">
               <input
                 checked={config.security_enabled}
@@ -370,6 +386,12 @@ export default function RepositoryQualityGateConfigPage() {
               />
               Fail on new TODO
             </label>
+            <EvaluationModeField
+              value={config.technical_debt_mode}
+              onChange={(technical_debt_mode) =>
+                setConfig({ ...config, technical_debt_mode })
+              }
+            />
             <label className="checkbox-line">
               <input
                 checked={config.technical_debt_enabled}
@@ -382,6 +404,33 @@ export default function RepositoryQualityGateConfigPage() {
                 }
               />
               Enable technical debt gate
+            </label>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Code Review</h2>
+              <p className="panel-subtitle">
+                Inline comments on changed lines. They stay non-blocking and do
+                not set the Gate Decision.
+              </p>
+            </div>
+          </div>
+          <div className="settings-form">
+            <label className="checkbox-line">
+              <input
+                checked={config.code_review_enabled}
+                type="checkbox"
+                onChange={(event) =>
+                  setConfig({
+                    ...config,
+                    code_review_enabled: event.target.checked
+                  })
+                }
+              />
+              Enable code review
             </label>
           </div>
         </section>
@@ -450,6 +499,28 @@ export default function RepositoryQualityGateConfigPage() {
         </div>
       </form>
     </div>
+  );
+}
+
+function EvaluationModeField({
+  value,
+  onChange
+}: {
+  value: GateEvaluationMode;
+  onChange: (mode: GateEvaluationMode) => void;
+}) {
+  return (
+    <label>
+      Evaluation mode
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value as GateEvaluationMode)}
+      >
+        <option value="hybrid">Hybrid</option>
+        <option value="deterministic">Deterministic</option>
+        <option value="ai_only">AI only</option>
+      </select>
+    </label>
   );
 }
 
