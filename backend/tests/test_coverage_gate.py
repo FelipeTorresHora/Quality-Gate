@@ -34,6 +34,7 @@ def test_parse_cobertura_xml_coverage(tmp_path):
     assert result.total_coverage == 50
     assert result.files["src/app.py"].covered == 1
     assert result.files["src/app.py"].total == 2
+    assert result.files["src/app.py"].uncovered_lines == [2]
 
 
 def test_parse_lcov_coverage(tmp_path):
@@ -60,6 +61,7 @@ def test_parse_lcov_coverage(tmp_path):
     assert result.total_coverage == 50
     assert result.files["src/app.ts"].covered == 1
     assert result.files["src/app.ts"].total == 2
+    assert result.files["src/app.ts"].uncovered_lines == [2]
 
 
 def test_parse_go_coverprofile(tmp_path):
@@ -82,6 +84,7 @@ def test_parse_go_coverprofile(tmp_path):
     assert result.total_coverage == 50
     assert result.files["github.com/acme/app/main.go"].covered == 1
     assert result.files["github.com/acme/app/main.go"].total == 2
+    assert result.files["github.com/acme/app/main.go"].uncovered_lines == [3, 4]
 
 
 def test_unmatched_changed_file_is_not_counted_as_zero():
@@ -312,6 +315,7 @@ def test_base_coverage_skipped_when_no_drop_policy(monkeypatch, tmp_path):
 
     assert checkouts == ["head-sha"]
     assert result.snapshot["status"] == "pass"
+    assert result.snapshot["uncovered_lines_by_file"] == {"main.py": []}
 
 
 def test_coverage_gate_runs_commands_in_configured_working_directory(
@@ -410,3 +414,60 @@ def test_coverage_gate_runs_commands_in_configured_working_directory(
         "pytest --cov=. --cov-report=xml:coverage.xml",
         "docker-log-watcher-agent",
     ) in commands
+    assert result.snapshot["uncovered_lines_by_file"] == {
+        "docker-log-watcher-agent/main.py": []
+    }
+
+
+def test_go_coverprofile_uncovered_lines_drop_when_a_later_block_covers(tmp_path):
+    from app.services.coverage_parsers.go_coverprofile import parse_go_coverprofile
+
+    report = tmp_path / "coverage.out"
+    report.write_text(
+        "\n".join(
+            [
+                "mode: set",
+                "pkg/main.go:1.1,3.2 1 0",
+                "pkg/main.go:2.1,2.4 1 1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = parse_go_coverprofile(report)
+
+    assert result.files["pkg/main.go"].uncovered_lines == [1, 3]
+    assert result.total_coverage == 50
+
+
+def test_uncovered_lines_by_file_keeps_changed_source_matches_only():
+    from app.services.coverage_parsers.types import CoverageFile, CoverageReport
+    from app.services.gates.coverage_gate import uncovered_lines_by_file
+
+    report = CoverageReport(
+        total_coverage=40,
+        files={
+            "src/app.py": CoverageFile(covered=1, total=3, uncovered_lines=[2, 4]),
+            "repo/src/other.py": CoverageFile(covered=0, total=1, uncovered_lines=[8]),
+            "main.py": CoverageFile(covered=0, total=2, uncovered_lines=[4, 4, 1]),
+            "src/untouched.py": CoverageFile(covered=0, total=1, uncovered_lines=[9]),
+        },
+    )
+    changed = [
+        {"filename": "src/app.py"},
+        {"filename": "src/other.py"},
+        {"filename": "src/missing.py"},
+        {"filename": "README.md"},
+        {"filename": "tests/test_app.py"},
+    ]
+
+    assert uncovered_lines_by_file(report, changed, "python") == {
+        "src/app.py": [2, 4],
+        "src/other.py": [8],
+    }
+    assert uncovered_lines_by_file(
+        report,
+        [{"filename": "agent/main.py"}],
+        "python",
+        working_directory="agent",
+    ) == {"agent/main.py": [1, 4]}
