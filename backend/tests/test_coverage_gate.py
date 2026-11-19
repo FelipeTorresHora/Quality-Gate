@@ -471,3 +471,29 @@ def test_uncovered_lines_by_file_keeps_changed_source_matches_only():
         "python",
         working_directory="agent",
     ) == {"agent/main.py": [1, 4]}
+    assert uncovered_lines_by_file(
+        report,
+        [None, "src/app.py", {"filename": "src/app.py"}],
+        "python",
+    ) == {"src/app.py": [2, 4]}
+
+
+def test_go_coverprofile_ignores_spanless_rows_and_swaps_reversed_ranges(tmp_path):
+    from app.services.coverage_parsers.go_coverprofile import parse_go_coverprofile
+
+    report = tmp_path / "coverage.out"
+    report.write_text(
+        "\n".join(
+            [
+                "mode: set",
+                "pkg/plain.go 1 0",
+                "pkg/main.go:4.2,2.1 1 0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = parse_go_coverprofile(report)
+
+    assert result.files["pkg/plain.go"].uncovered_lines == []
+    assert result.files["pkg/main.go"].uncovered_lines == [2, 3, 4]

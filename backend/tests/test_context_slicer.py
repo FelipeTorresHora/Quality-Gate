@@ -319,3 +319,310 @@ def test_ainvoke_structured_resends_pydantic_error_then_stops():
     assert failing.runnable.calls.__len__() == 2
     assert caught.value.code == "ai_structured_output_invalid"
     assert "String should have at least 1 character" in caught.value.message
+
+
+def test_diff_parser_covers_headers_metadata_and_merged_hunks():
+    preamble = "\n".join(
+        [
+            "not a diff header",
+            "@@ -1 +1 @@",
+            "-old",
+            "+new",
+            "\\ No newline at end of file",
+            'diff --git "a/my file.py" "b/my file.py"',
+            '--- "a/my file.py"',
+            '+++ "b/my file.py"',
+            "@@ -0,0 +1,1 @@",
+            "+value = 1",
+            "diff --git a/old.py b/old.py",
+            "deleted file mode 100644",
+            "--- a/old.py",
+            "+++ /dev/null",
+            "@@ -1 +0,0 @@",
+            "-removed",
+            "diff --git a/src/app.py b/src/app.py",
+            "--- a/src/app.py",
+            "+++ file.py",
+            "@@ -0,0 +1,1 @@",
+            "+first = 1",
+            "diff --git a/src/app.py b/src/app.py",
+            "index 111..222 100644",
+            "new file mode 100644",
+            "similarity index 90%",
+            "rename from src/old.py",
+            "copy from src/other.py",
+            "old mode 100644",
+            "--- a/src/app.py",
+            "+++ b/src/app.py",
+            "@@ -0,0 +1,1 @@",
+            "+second = 2",
+            "diff --git noslash",
+            "GIT binary patch",
+            "",
+        ]
+    )
+
+    lines = valid_lines_for_diff(preamble)
+
+    assert lines["unknown"] == [1]
+    assert lines["my file.py"] == [1]
+    assert lines["old.py"] == []
+    assert lines["src/app.py"] == [1]
+    assert "noslash" not in lines or lines.get("unknown")
+
+
+def test_slice_skips_unusable_files_and_uses_collapsed_secrets():
+    private_key = "\n".join(
+        [
+            "diff --git a/src/keys.py b/src/keys.py",
+            "--- a/src/keys.py",
+            "+++ b/src/keys.py",
+            "@@ -1,3 +1,3 @@",
+            " -----BEGIN PRIVATE KEY-----",
+            "+abcdef",
+            " -----END PRIVATE KEY-----",
+        ]
+    )
+    collapsed = slice_review_batches(private_key, max_batch_chars=8000, max_batches=2)
+    assert "BEGIN PRIVATE KEY" not in collapsed.batches[0]["diff_text"]
+    assert REDACTION_MARKER in collapsed.batches[0]["diff_text"]
+
+    tiny = slice_review_batches(_added("src/app.py", ["value = 1"]), max_batch_chars=1, max_batches=2)
+    assert tiny.batches == []
+    assert tiny.review_truncated is True
+    assert tiny.skipped_files == ["src/app.py"]
+
+    nothing = slice_review_batches("", max_batch_chars=0, max_batches=0)
+    assert nothing.batches_sent == 0
+    assert nothing.review_truncated is False
+
+
+def test_digests_cover_budget_alerts_and_non_dict_inputs():
+    short = build_coverage_digest(
+        mode="hybrid",
+        deterministic_status=None,
+        max_chars=None,
+    )
+    assert short.pillar_max_chars == 8000
+    assert "blocking_reasons:" in short.digest["evidence_text"]
+    assert short.review_truncated is False
+
+    clipped = build_coverage_digest(
+        mode="hybrid",
+        deterministic_status="fail",
+        uncovered_lines_by_file={".\\src\\app.py": [1]},
+        diff_text=_added("src/app.py", ["gap = True", "API_KEY=x"]),
+        max_chars=5,
+    )
+    assert clipped.review_truncated is True
+    assert len(clipped.digest["evidence_text"]) <= 5
+
+    empty_budget = build_security_digest(
+        mode="hybrid",
+        deterministic_status="pass",
+        max_chars=0,
+    )
+    assert empty_budget.digest["evidence_text"] == ""
+    assert empty_budget.review_truncated is True
+
+    security = build_security_digest(
+        mode="hybrid",
+        deterministic_status="pass",
+        diff_text="\n".join(
+            [
+                _added("package-lock.json", ["password = 'skip-me'"]),
+                _added("src/auth.py", ["password = 'keep'"]),
+                _added("src/net.py", ["requests.get('https://example.com')"]),
+            ]
+        ),
+        alerts=[
+            None,
+            {"path": "./src/auth.py", "scanner": "", "rule_id": "hardcoded"},
+            {"file_path": "   ", "title": ""},
+        ],
+        max_chars=220,
+    )
+    assert "package-lock.json" not in security.digest["evidence_text"]
+    assert security.review_truncated is True
+    assert "src/net.py" in security.skipped_files or "src/auth.py" in security.skipped_files
+
+    debt = build_debt_digest(
+        mode="ai_only",
+        deterministic_status="pass",
+        findings=[None, {"filename": "src/plain.py", "title": "Note"}],
+        diff_text=_added("src/plain.py", ["TODO: later"]),
+        snapshot=None,
+        max_chars=8000,
+    )
+    assert "src/plain.py" in debt.digest["evidence_text"]
+    assert "Note" in debt.digest["evidence_text"]
+
+
+def test_ainvoke_structured_accepts_raw_shapes_and_rejects_bad_attempts():
+    class Scripted:
+        def __init__(self, results):
+            self.results = results
+            self.calls = []
+
+        async def ainvoke(self, messages):
+            self.calls.append(messages)
+            return self.results[len(self.calls) - 1]
+
+    class LLM:
+        def __init__(self, results):
+            self.runnable = Scripted(results)
+
+        def with_structured_output(self, schema, include_raw=False):
+            assert include_raw is True
+            return self.runnable
+
+    direct = asyncio.run(
+        ainvoke_structured(
+            LLM([BatchReviewOutput(batch_id="direct", summary="ok")]),
+            BatchReviewOutput,
+            [],
+        )
+    )
+    assert direct.batch_id == "direct"
+
+    from_dict = asyncio.run(
+        ainvoke_structured(
+            LLM(
+                [
+                    {
+                        "parsed": {"batch_id": "from-dict", "summary": "ok"},
+                        "parsing_error": None,
+                        "raw": {"content": "ok"},
+                    }
+                ]
+            ),
+            BatchReviewOutput,
+            [],
+        )
+    )
+    assert from_dict.batch_id == "from-dict"
+
+    class Raw:
+        content = 5
+
+    recovered = asyncio.run(
+        ainvoke_structured(
+            LLM(
+                [
+                    {"parsed": None, "parsing_error": RuntimeError("boom"), "raw": "raw-text"},
+                    {"parsed": None, "parsing_error": None, "raw": None},
+                    {"parsed": None, "parsing_error": ValueError("again"), "raw": Raw()},
+                    BatchReviewOutput(batch_id="recovered", summary="ok"),
+                ]
+            ),
+            BatchReviewOutput,
+            [{"role": "user", "content": "review"}],
+            max_attempts=4,
+        )
+    )
+    assert recovered.batch_id == "recovered"
+
+    runner = LLM(
+        [
+            {"parsed": None, "parsing_error": RuntimeError("boom"), "raw": "raw-text"},
+            {"parsed": None, "parsing_error": None, "raw": None},
+            {"parsed": None, "parsing_error": ValueError("again"), "raw": Raw()},
+            BatchReviewOutput(batch_id="recovered", summary="ok"),
+        ]
+    )
+    parsed = asyncio.run(
+        ainvoke_structured(runner, BatchReviewOutput, [{"role": "user", "content": "review"}], max_attempts=4)
+    )
+    blob = json.dumps(runner.runnable.calls, default=str)
+    assert parsed.batch_id == "recovered"
+    assert "boom" in blob
+    assert "Structured output was empty." in blob
+    assert "again" in blob
+
+    with pytest.raises(AppError) as caught:
+        asyncio.run(ainvoke_structured(LLM([]), BatchReviewOutput, [], max_attempts=0))
+    assert caught.value.status_code == 400
+
+    plain = asyncio.run(
+        ainvoke_structured(
+            LLM([{"batch_id": "plain", "summary": "ok"}]),
+            BatchReviewOutput,
+            [],
+        )
+    )
+    assert plain.batch_id == "plain"
+
+    class Flaky:
+        def __init__(self):
+            self.calls = 0
+
+        async def ainvoke(self, messages):
+            self.calls += 1
+            if self.calls == 1:
+                return "not-json"
+            return BatchReviewOutput(batch_id="after-text", summary="ok")
+
+    class FlakyLLM:
+        def __init__(self):
+            self.runnable = Flaky()
+
+        def with_structured_output(self, schema, include_raw=False):
+            return self.runnable
+
+    after_text = asyncio.run(
+        ainvoke_structured(FlakyLLM(), BatchReviewOutput, [{"role": "user", "content": "review"}])
+    )
+    assert after_text.batch_id == "after-text"
+
+
+def test_slice_budget_edges_and_duplicate_lines():
+    duplicate = "\n".join(
+        [
+            "diff --git a/src/app.py b/src/app.py",
+            "--- a/src/app.py",
+            "+++ b/src/app.py",
+            "@@ -0,0 +1,1 @@",
+            "+first",
+            "@@ -0,0 +1,1 @@",
+            "+second",
+            "diff --git a//dev/null b//dev/null",
+            "--- a//dev/null",
+            "+++ b//dev/null",
+            "@@ -1 +0,0 @@",
+            "-gone",
+        ]
+    )
+    assert valid_lines_for_diff(duplicate)["src/app.py"] == [1]
+    omitted = slice_review_batches(duplicate, max_batch_chars=8000, max_batches=2)
+    assert omitted.skipped_files == ["/dev/null"]
+    assert omitted.batches[0]["file_paths"] == ["src/app.py"]
+
+    blocked = slice_review_batches(_added("src/app.py", ["value = 1"]), max_batch_chars=0, max_batches=1)
+    assert blocked.batches == []
+    assert blocked.review_truncated is True
+
+    growing = _added("src/app.py", ["API_KEY=x"])
+    raw = growing if growing.endswith("\n") else growing + "\n"
+    fitted = slice_review_batches(raw, max_batch_chars=len(raw.strip()), max_batches=1)
+    assert REDACTION_MARKER in fitted.batches[0]["diff_text"] or fitted.review_truncated is True
+
+    skipped = build_security_digest(
+        mode="hybrid",
+        deterministic_status="pass",
+        diff_text="\n".join(
+            [
+                "diff --git a/src/auth.py b/src/auth.py",
+                "--- a/src/auth.py",
+                "+++ b/src/auth.py",
+                "@@ -1 +1 @@",
+                "-old",
+                "+password = 'one'",
+                "@@ -3 +3 @@",
+                "-old",
+                "+password = 'two'",
+            ]
+        ),
+        max_chars=40,
+    )
+    assert skipped.review_truncated is True
+    assert skipped.skipped_files.count("src/auth.py") == 1
