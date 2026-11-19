@@ -5,7 +5,22 @@ from app.core.config import Settings
 from app.services.agent import graph as graph_module
 from app.services.agent import quality_agent
 from app.services.agent.prompts import PROMPT_VERSION
-from app.services.agent.schemas import AIReviewError, AIReviewGenerated, AIReviewSkipped
+from app.models.enums import FindingCategory, FindingSeverity
+from app.schemas.analysis import AnalysisRunDetail
+from app.services.agent.schemas import (
+    AICoverageReview,
+    AIGateFinding,
+    AIReviewError,
+    AIReviewGenerated,
+    AIReviewPartial,
+    AIReviewSkipped,
+    AISecurityReview,
+    AITechDebtReview,
+    ContextBudgetMetadata,
+    InlineComment,
+    parse_ai_review_snapshot,
+)
+from app.services.agent.state import merge_valid_lines
 from app.services.agent.tools import (
     get_changed_file_hunk,
     get_gate_summary,
@@ -225,3 +240,98 @@ def test_agent_modules_do_not_write_gate_decision():
 def test_error_snapshot_shape_unchanged():
     assert AIReviewError().model_dump(mode="json")["reason"] == "ai_review_failed"
     assert no_secrets({"summary": "clean"})["score"] == 1.0
+
+
+def _ai_finding(category: FindingCategory) -> AIGateFinding:
+    return AIGateFinding(
+        category=category,
+        severity=FindingSeverity.LOW,
+        title="Note",
+        description="Non-blocking AI note.",
+        confidence=0.4,
+    )
+
+
+def test_phase0_review_contracts_round_trip():
+    review = AnalysisRunDetail.model_json_schema()["properties"]["ai_review_json"]
+    assert any(item.get("properties", {}).get("status", {}).get("const") == "partial" for item in review["anyOf"])
+
+    assert parse_ai_review_snapshot(None) is None
+    assert parse_ai_review_snapshot({}) is None
+    generated = AIReviewGenerated(
+        score=70,
+        summary="Gate Decision is pass.",
+        risk_level="low",
+        coverage_assessment="ok",
+        security_assessment="ok",
+        technical_debt_assessment="ok",
+        inline_comments=[
+            InlineComment(
+                file_path="app/service.py",
+                line_number=4,
+                title="Name",
+                body="Rename the helper.",
+                confidence=0.8,
+            )
+        ],
+        context_budget=ContextBudgetMetadata(
+            batches_sent=1,
+            batches_total=1,
+            review_truncated=False,
+        ),
+    )
+    empty = AIReviewGenerated(
+        score=70,
+        summary="Gate Decision is pass.",
+        risk_level="low",
+        coverage_assessment="ok",
+        security_assessment="ok",
+        technical_debt_assessment="ok",
+    ).model_dump(mode="json")
+    assert "inline_comments" not in empty
+    assert "pillar_insights" not in empty
+    assert "context_budget" not in empty
+    dumped = generated.model_dump(mode="json")
+    assert dumped["inline_comments"][0]["category"] == "code_review"
+    assert parse_ai_review_snapshot(dumped).status == "generated"
+    assert generated.serialize_model(lambda _self: "raw") == "raw"
+
+    partial = AIReviewPartial(
+        summary="Stopped early.",
+        context_budget=ContextBudgetMetadata(
+            batches_sent=1,
+            batches_total=3,
+            review_truncated=True,
+            skipped_files=["app/legacy.py"],
+        ),
+    )
+    assert parse_ai_review_snapshot(partial.model_dump(mode="json")).status == "partial"
+
+    AICoverageReview(
+        summary="Coverage",
+        coverage_assessment="Low.",
+        findings=[_ai_finding(FindingCategory.COVERAGE)],
+    )
+    AISecurityReview(
+        summary="Security",
+        security_assessment="Clean.",
+        findings=[_ai_finding(FindingCategory.SECURITY)],
+    )
+    AITechDebtReview(
+        summary="Debt",
+        technical_debt_assessment="Fine.",
+        findings=[_ai_finding(FindingCategory.TECHNICAL_DEBT)],
+    )
+    try:
+        AICoverageReview(
+            summary="Coverage",
+            coverage_assessment="Low.",
+            findings=[_ai_finding(FindingCategory.SECURITY)],
+        )
+    except ValueError as exc:
+        assert "coverage" in str(exc)
+    else:
+        raise AssertionError("mixed pillar findings must be rejected")
+
+    assert merge_valid_lines(None, {"app/service.py": [2, 2, 4]}) == {"app/service.py": [2, 4]}
+    assert merge_valid_lines({"app/service.py": [1]}, {"app/other.py": [3]})["app/other.py"] == [3]
