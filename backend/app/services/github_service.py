@@ -142,6 +142,43 @@ class GitHubClient:
         self._raise_for_response(response, owner, name)
         return response.json()
 
+    def create_pull_request_review(
+        self,
+        owner: str,
+        name: str,
+        pr_number: int,
+        commit_id: str,
+        body: str,
+        comments: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        response = httpx.post(
+            f"{self.base_url}/repos/{owner}/{name}/pulls/{pr_number}/reviews",
+            headers=self._headers(),
+            json={
+                "commit_id": commit_id,
+                "body": body,
+                "event": "COMMENT",
+                "comments": [
+                    {
+                        "path": comment["path"],
+                        "line": comment["line"],
+                        "side": "RIGHT",
+                        "body": comment["body"],
+                    }
+                    for comment in comments
+                ],
+            },
+            timeout=20,
+        )
+        if response.status_code == 422:
+            raise AppError(
+                422,
+                "github_pull_request_review_rejected",
+                "GitHub rejected the pull request review.",
+            )
+        self._raise_for_response(response, owner, name)
+        return response.json()
+
     def create_commit_status(
         self,
         owner: str,
