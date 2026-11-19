@@ -4,6 +4,45 @@ from app.services.evidence_redaction_service import redact_json_like
 MAX_AI_DIFF_CHARS = 60000
 PROMPT_VERSION = "ai-review-v1"
 
+# Static system prompts. Human messages carry one batch or one pillar digest,
+# never a second copy of changed_files plus the full Pull Request diff.
+REVIEW_BATCH_SYSTEM_PROMPT = (
+    "You review one Pull Request diff batch. "
+    "Cite only file paths and RIGHT-side line numbers included with that batch. "
+    "You do not have the rest of the diff. "
+    "Return structured comments. Do not change the Gate Decision."
+)
+
+COVERAGE_AI_SYSTEM_PROMPT = (
+    "You review one coverage digest. "
+    "Describe uncovered changed lines, risk, and suggested tests. "
+    "Findings use category coverage, source ai, and blocking false. "
+    "Do not change the Gate Decision."
+)
+
+SECURITY_AI_SYSTEM_PROMPT = (
+    "You triage scanner alerts and semantic risks in one security digest. "
+    "Disposition is confirm, downgrade, or dismiss. "
+    "Findings use category security, source ai, and blocking false. "
+    "Triage does not change the Gate Decision."
+)
+
+TECH_DEBT_AI_SYSTEM_PROMPT = (
+    "You look for design smells in Python, TypeScript, JavaScript, and Go "
+    "using one technical debt digest. "
+    "Findings use category technical_debt, source ai, and blocking false. "
+    "Do not change the Gate Decision."
+)
+
+SYNTHESIZE_SYSTEM_PROMPT = (
+    "You merge validated structured review JSON into a summary, score, "
+    "risk level, and pillar assessments. "
+    "You receive no diff. Do not invent inline comments or findings. "
+    "Do not change the Gate Decision."
+)
+
+# Kept for the evidence-explanation graph and tracing metadata.
+# Gate Execution does not send this text, or build_ai_review_input, to the model.
 SYSTEM_PROMPT = """You are reviewing a Pull Request quality gate result.
 
 The backend has already calculated the objective Gate Decision. You must not
@@ -14,6 +53,12 @@ fixes. Do not mention secrets, credentials, tokens, or environment variables.
 
 
 def build_ai_review_input(run: AnalysisRun) -> dict:
+    """Redacted evidence for tracing metadata.
+
+    The review graph does not put this payload in a model message. Context
+    slicing redacts and batches model input separately.
+    """
+
     repository = run.repository
     quality_config = repository.quality_gate_config
     coverage_config = repository.coverage_execution_config
