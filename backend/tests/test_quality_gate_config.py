@@ -52,6 +52,50 @@ def test_update_quality_gate_config(client, repository, monkeypatch):
     assert f"quality-gate-config:repo:{repository['id']}" in expired
 
 
+def test_quality_gate_config_pillar_modes_default_to_hybrid_and_update(
+    client, repository
+):
+    response = client.get(
+        f"/api/repositories/{repository['id']}/quality-gate-config"
+    )
+
+    assert response.status_code == 200
+    config = response.json()
+    assert config["coverage_mode"] == "hybrid"
+    assert config["security_mode"] == "hybrid"
+    assert config["technical_debt_mode"] == "hybrid"
+    assert config["code_review_enabled"] is False
+
+    updated = client.put(
+        f"/api/repositories/{repository['id']}/quality-gate-config",
+        headers={"X-CSRF-Token": repository["csrf_token"]},
+        json={
+            "coverage_mode": "ai_only",
+            "security_mode": "deterministic",
+            "technical_debt_mode": "hybrid",
+            "code_review_enabled": True,
+        },
+    )
+
+    assert updated.status_code == 200
+    body = updated.json()
+    assert body["coverage_mode"] == "ai_only"
+    assert body["security_mode"] == "deterministic"
+    assert body["technical_debt_mode"] == "hybrid"
+    assert body["code_review_enabled"] is True
+    assert body["min_total_coverage"] == config["min_total_coverage"]
+
+
+def test_update_quality_gate_config_rejects_unknown_pillar_mode(client, repository):
+    response = client.put(
+        f"/api/repositories/{repository['id']}/quality-gate-config",
+        headers={"X-CSRF-Token": repository["csrf_token"]},
+        json={"coverage_mode": "model_decides"},
+    )
+
+    assert response.status_code == 422
+
+
 def test_update_quality_gate_config_requires_csrf_token(client, repository):
     response = client.put(
         f"/api/repositories/{repository['id']}/quality-gate-config",
